@@ -1,6 +1,6 @@
 from multiprocessing.connection import Client
 from typing import List
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from models import Client
 
 app = FastAPI()
@@ -39,3 +39,13 @@ async def register_client(client: Client):
     db.append(client)
     return {"hostname": client.hostname}
 
+@app.delete("/api/v1/clients/{client_hostname}")
+async def delete_client(client_hostname: str):
+    for client in db:
+        if client.hostname == client_hostname:
+            db.remove(client)
+            return
+    raise HTTPException (
+        status_code=404,
+        detail="Client with hostname/serial number: {client_hostname} does not exist."
+    )

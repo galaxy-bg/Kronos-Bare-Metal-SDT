@@ -39,7 +39,14 @@ async def register_client(client: Client):
     db.append(client)
     return {"hostname": client.hostname}
 
-@app.post("/api/v1/clients")
-async def register_client(client: Client):
-    db.append(client)
-    return {"hostname": client.hostname}
+@app.delete("/api/v1/clients/{client_hostname}")
+async def delete_client(client_hostname: str):
+    for client in db:
+        if client.hostname == client_hostname:
+            db.remove(client)
+            return
+    raise HTTPException (
+        status_code=404,
+        detail="Client with hostname/serial number: {client_hostname} does not exist."
+    )
+
