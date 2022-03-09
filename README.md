@@ -1,1 +1,2 @@
-#kronos API with fastAPI and Docker v0.9
+Kronos Bare-Metal(Physical) server deployment tool
+
