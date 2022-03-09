@@ -34,3 +34,12 @@ def ip():
 async def fetch_clients():
     return db;
 
+@app.post("/api/v1/clients")
+async def register_client(client: Client):
+    db.append(client)
+    return {"hostname": client.hostname}
+
+@app.post("/api/v1/clients")
+async def register_client(client: Client):
+    db.append(client)
+    return {"hostname": client.hostname}

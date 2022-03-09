@@ -1,7 +1,7 @@
 from multiprocessing.connection import Client
 from typing import List
 from fastapi import FastAPI
-from .models import Client
+from models import Client
 
 app = FastAPI()
 
@@ -33,4 +33,9 @@ def ip():
 @app.get("/api/v1/clients")
 async def fetch_clients():
     return db;
+
+@app.post("/api/v1/clients")
+async def register_client(client: Client):
+    db.append(client)
+    return {"hostname": client.hostname}
 
