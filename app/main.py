@@ -1,6 +1,6 @@
 from multiprocessing.connection import Client
 from typing import List
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from .models import Client
 
 app = FastAPI()
