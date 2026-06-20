@@ -24,6 +24,7 @@ Phase-1 intentionally does not include BIOS configuration, firmware updates, or 
 
 - [Phase-1 MVP Scope](docs/phase-1.md)
 - [HLD Context](docs/hld-context.md)
+- [Lab Network Design](docs/lab-network-design.md)
 
 ## Quick Start
 
@@ -37,6 +38,12 @@ Services:
 - Backend API: http://localhost:8000
 - API docs: http://localhost:8000/docs
 - PostgreSQL: localhost:5432
+
+Lab control plane profile:
+
+- Control plane IP: `192.168.88.240`
+- Agent controller URL: `http://192.168.88.240:8000`
+- Operator Web UI: `http://192.168.88.240:3000`
 
 ## Seed Example
 

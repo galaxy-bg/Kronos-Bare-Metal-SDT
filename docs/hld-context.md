@@ -23,12 +23,12 @@ KronOS SDT is designed around a central controller and multiple bare-metal serve
                                                |
                                       +--------+---------+
                                       | Managed VLAN     |
-                                      | with DHCP        |
+                                      | 192.168.88.0/24  |
                                       +--------+---------+
                                                |
                                       +--------+---------+
                                       | Control Node     |
-                                      | API Server + DB  |
+                                      | 192.168.88.240   |
                                       +------------------+
 ```
 
@@ -50,16 +50,25 @@ Phase-1 only detects and stores BMC information. It does not perform power contr
 
 The managed VLAN provides network connectivity to the operating system booted from the KronOS Live USB.
 
+Initial lab network:
+
+- Network: `192.168.88.0/24`
+- Control plane IP: `192.168.88.240`
+- DHCP provider: lab switch or upstream DHCP service
+- PXE/TFTP: not required for Phase-1
+
 Expected behavior:
 
 - The server boots into kronosOS from Live USB.
 - The `eth0` interface receives an IP address from DHCP.
-- The KronOS Agent uses this network path to reach the Control Node API.
+- The KronOS Agent uses this network path to reach the Control Node API at `http://192.168.88.240:8000`.
 - The agent registers the server, uploads inventory, and sends heartbeats.
 
 ## Control Node
 
 The Control Node runs the central KronOS SDT services.
+
+In the initial lab, the Control Node is the MacBook M2 connected to the managed lab VLAN with static IP `192.168.88.240`.
 
 Phase-1 services:
 
@@ -145,10 +154,10 @@ Mapping from HLD to backend:
 1. Server boots from KronOS Live USB into kronosOS.
 2. `eth0` receives an address from DHCP on the managed VLAN.
 3. KronOS Agent collects identity and hardware inventory.
-4. Agent calls `POST /api/v1/agents/register`.
+4. Agent calls `POST http://192.168.88.240:8000/api/v1/agents/register`.
 5. Control Node creates or updates the server record.
-6. Agent calls `POST /api/v1/agents/inventory`.
-7. Agent periodically calls `POST /api/v1/agents/heartbeat`.
+6. Agent calls `POST http://192.168.88.240:8000/api/v1/agents/inventory`.
+7. Agent periodically calls `POST http://192.168.88.240:8000/api/v1/agents/heartbeat`.
 8. Web UI lists discovered servers and displays inventory details.
 
 ## Explicitly Out of Scope for Phase-1
