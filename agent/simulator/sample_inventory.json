@@ -2,8 +2,8 @@
   "system": {
     "vendor": "HPE",
     "model": "ProLiant DL380 Gen11",
-    "product_name": "ProLiant DL380 Gen11",
-    "serial_number": "LAB-FAKE-001"
+    "product_name": "P42124-B21",
+    "serial_number": "CZJ12345678"
   },
   "dmi": {
     "bios_vendor": "HPE",
@@ -44,7 +44,6 @@
   ],
   "bmc": {
     "vendor": "HPE",
-    "type": "iLO",
-    "ip": "192.168.88.151"
+    "type": "iLO"
   }
 }

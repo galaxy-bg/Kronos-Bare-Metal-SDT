@@ -39,13 +39,13 @@ def load_inventory(path: Path) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Register a fake server to KDX SDT.")
     parser.add_argument("--controller", default="http://localhost:8000", help="KDX SDT controller URL.")
-    parser.add_argument("--serial", default="LAB-FAKE-001", help="Server serial number.")
-    parser.add_argument("--hostname", default="fake-dl380-01", help="Server hostname.")
+    parser.add_argument("--serial", default="CZJ12345678", help="Server serial number.")
+    parser.add_argument("--hostname", default=None, help="Server hostname. Defaults to controller-generated iLO-<serial>.")
     parser.add_argument("--vendor", default="HPE", help="Server vendor.")
     parser.add_argument("--model", default="ProLiant DL380 Gen11", help="Server model.")
-    parser.add_argument("--product-name", default="ProLiant DL380 Gen11", help="Server product name.")
+    parser.add_argument("--product-name", default="P42124-B21", help="Server product ID/name.")
     parser.add_argument("--agent-ip", default="192.168.88.50", help="Temporary OS IP address.")
-    parser.add_argument("--bmc-ip", default="192.168.88.151", help="BMC/iLO IP address.")
+    parser.add_argument("--bmc-ip", default=None, help="Known BMC/iLO/iDRAC/IPMI IP address. Omit to simulate unknown first boot.")
     parser.add_argument(
         "--inventory",
         default=str(Path(__file__).with_name("sample_inventory.json")),
@@ -66,7 +66,10 @@ def main() -> int:
     inventory["system"]["vendor"] = args.vendor
     inventory["system"]["model"] = args.model
     inventory["system"]["product_name"] = args.product_name
-    inventory["bmc"]["ip"] = args.bmc_ip
+    if args.bmc_ip:
+        inventory["bmc"]["ip"] = args.bmc_ip
+    else:
+        inventory["bmc"].pop("ip", None)
 
     register_payload = {
         "serial_number": args.serial,

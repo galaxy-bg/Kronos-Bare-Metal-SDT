@@ -13,6 +13,15 @@ from app.schemas.server import ServerRead
 router = APIRouter()
 
 
+def default_hostname(serial_number: str) -> str:
+    return f"iLO-{serial_number}"
+
+
+def update_if_known(server: Server, field_name: str, value: str | None) -> None:
+    if value is not None:
+        setattr(server, field_name, value)
+
+
 @router.post("/register", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
 def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) -> Server:
     now = datetime.now(UTC)
@@ -24,7 +33,7 @@ def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) ->
             vendor=payload.vendor,
             model=payload.model,
             product_name=payload.product_name,
-            hostname=payload.hostname,
+            hostname=payload.hostname or default_hostname(payload.serial_number),
             agent_ip=payload.agent_ip,
             bmc_ip=payload.bmc_ip,
             status="online",
@@ -32,12 +41,14 @@ def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) ->
         )
         db.add(server)
     else:
-        server.vendor = payload.vendor
-        server.model = payload.model
-        server.product_name = payload.product_name
-        server.hostname = payload.hostname
-        server.agent_ip = payload.agent_ip
-        server.bmc_ip = payload.bmc_ip
+        update_if_known(server, "vendor", payload.vendor)
+        update_if_known(server, "model", payload.model)
+        update_if_known(server, "product_name", payload.product_name)
+        update_if_known(server, "hostname", payload.hostname)
+        update_if_known(server, "agent_ip", payload.agent_ip)
+        update_if_known(server, "bmc_ip", payload.bmc_ip)
+        if server.hostname is None:
+            server.hostname = default_hostname(payload.serial_number)
         server.status = "online"
         server.last_seen = now
 

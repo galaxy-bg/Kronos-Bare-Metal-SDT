@@ -33,6 +33,7 @@ import LanIcon from '@mui/icons-material/Lan';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import { Link as RouterLink } from 'react-router-dom';
 import { deleteServer, fetchServers, fetchStats, updateServer } from '../api/client';
 import type { DashboardStats, ServerSummary, ServerUpdate } from '../types';
@@ -74,6 +75,8 @@ export function DashboardPage() {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [selectedServer, setSelectedServer] = useState<ServerSummary | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [managementIpOpen, setManagementIpOpen] = useState(false);
+  const [managementIp, setManagementIp] = useState('');
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
 
@@ -117,6 +120,34 @@ export function DashboardPage() {
     });
     setEditOpen(true);
     closeMenu();
+  }
+
+  function openManagementIp() {
+    if (!selectedServer) return;
+    setManagementIp(selectedServer.bmc_ip ?? '');
+    setManagementIpOpen(true);
+    closeMenu();
+  }
+
+  function closeManagementIp() {
+    setManagementIpOpen(false);
+    setSelectedServer(null);
+    setManagementIp('');
+  }
+
+  async function saveManagementIp() {
+    if (!selectedServer) return;
+    setSaving(true);
+    try {
+      const updated = await updateServer(selectedServer.id, { bmc_ip: managementIp.trim() || null });
+      setServers((current) => current.map((server) => (server.id === updated.id ? updated : server)));
+      await load();
+      closeManagementIp();
+    } catch {
+      setError('Management IP could not be updated.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function closeEdit() {
@@ -311,6 +342,10 @@ export function DashboardPage() {
           <EditIcon fontSize="small" sx={{ mr: 1 }} />
           Edit
         </MenuItem>
+        <MenuItem onClick={openManagementIp}>
+          <SettingsEthernetIcon fontSize="small" sx={{ mr: 1 }} />
+          Set Management IP
+        </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
           Refresh
@@ -320,6 +355,30 @@ export function DashboardPage() {
           Delete
         </MenuItem>
       </Menu>
+
+      <Dialog open={managementIpOpen} onClose={closeManagementIp} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 900 }}>Set Management IP</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography color="text.secondary">
+              {selectedServer?.hostname ?? selectedServer?.serial_number}
+            </Typography>
+            <TextField
+              autoFocus
+              label="iLO / iDRAC / IPMI IP"
+              placeholder="192.168.88.160"
+              value={managementIp}
+              onChange={(event) => setManagementIp(event.target.value)}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeManagementIp}>Cancel</Button>
+          <Button onClick={saveManagementIp} variant="contained" disabled={saving}>
+            Save IP
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={editOpen} onClose={closeEdit} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>Edit Server</DialogTitle>
