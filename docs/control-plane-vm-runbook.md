@@ -1,8 +1,8 @@
 # KDX SDT Control Plane VM Runbook
 
-This runbook describes how to run the KDX SDT control plane on a lab VM connected to VLAN 88.
+This runbook describes how to run the KDX SDT control plane on a Rocky Linux lab VM connected to VLAN 88.
 
-The MacBook is used as an admin workstation over VPN. The KDX SDT controller should run inside the lab network so bare-metal servers and iLO/BMC interfaces can reach it consistently.
+The MacBook is used as an admin workstation over VPN. The KDX SDT controller should run inside the lab network so KDX Live USB agents, fake agents and iLO/BMC interfaces can reach it consistently.
 
 ## Target Topology
 
@@ -35,14 +35,14 @@ Recommended baseline:
 
 | Resource | Value |
 | --- | --- |
-| OS | Ubuntu Server 24.04 LTS |
+| OS | Rocky Linux 9.5 |
 | vCPU | 2 |
 | Memory | 4 GB minimum, 8 GB preferred |
 | Disk | 40 GB minimum |
 | NIC | VLAN 88 |
-| Static IP | `192.168.88.240/24` |
+| Control-plane IP | `192.168.88.240/24` |
 
-The control-plane IP must be excluded from DHCP or reserved on the switch.
+The control-plane IP must be excluded from DHCP or reserved on the switch. Bare-metal servers can use DHCP on VLAN 88 for their temporary agent IPs.
 
 ## Network Settings
 
@@ -55,7 +55,7 @@ Gateway: lab gateway for VLAN 88
 DNS: lab DNS or public resolver
 ```
 
-The following URLs should be reachable from the lab network:
+The following URLs should be reachable from the lab network and from the MacBook VPN route:
 
 ```text
 Backend API: http://192.168.88.240:8000
@@ -63,29 +63,40 @@ Web UI:      http://192.168.88.240:3000
 API Docs:    http://192.168.88.240:8000/docs
 ```
 
-## Install Runtime
+## Install Runtime On Rocky Linux
 
-Install Docker Engine and Compose plugin on the VM.
+Install Docker Engine and Compose plugin on the VM. Run these commands as `root` or with `sudo`.
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl git
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo usermod -aG docker "$USER"
+dnf install -y dnf-plugins-core git curl ca-certificates
+dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+docker version
+docker compose version
 ```
-
-Log out and back in after adding the user to the `docker` group.
 
 ## Deploy KDX SDT
 
 ```bash
+mkdir -p /opt/kdx
+cd /opt/kdx
 git clone https://github.com/galaxy-bg/Kronos-Bare-Metal-SDT.git
 cd Kronos-Bare-Metal-SDT
+```
+
+Create a lab `.env` file so the browser uses the VM IP instead of `localhost` for the backend API. This is required when opening the UI from the MacBook or another host.
+
+```bash
+cat > .env <<'EOF'
+VITE_API_BASE_URL=http://192.168.88.240:8000
+CORS_ORIGINS=http://192.168.88.240:3000,http://localhost:3000,http://127.0.0.1:3000
+EOF
+```
+
+Start the stack:
+
+```bash
 docker compose up --build -d
 ```
 
@@ -93,6 +104,7 @@ Check service status:
 
 ```bash
 docker compose ps
+curl http://localhost:8000/health
 curl http://192.168.88.240:8000/health
 ```
 
@@ -104,11 +116,12 @@ Expected health response:
 
 ## Firewall
 
-Allow the lab VLAN to reach the API and UI.
+Allow the lab VLAN to reach the API and UI. Rocky Linux commonly uses `firewalld`.
 
 ```bash
-sudo ufw allow from 192.168.88.0/24 to any port 8000 proto tcp
-sudo ufw allow from 192.168.88.0/24 to any port 3000 proto tcp
+firewall-cmd --permanent --add-port=8000/tcp
+firewall-cmd --permanent --add-port=3000/tcp
+firewall-cmd --reload
 ```
 
 PostgreSQL port `5432` is exposed by Compose for local lab development, but agents do not need direct database access.
@@ -123,6 +136,26 @@ KDX_AGENT_INTERFACE=eth0
 KDX_HEARTBEAT_INTERVAL=60
 ```
 
+## Register A Fake Server
+
+Use this from the control-plane VM to simulate a KDX Live USB agent before testing real bare metal:
+
+```bash
+python3 agent/simulator/fake_agent.py \
+  --controller http://192.168.88.240:8000 \
+  --serial LAB-FAKE-VM-001 \
+  --hostname fake-vm-dl380-01 \
+  --agent-ip 192.168.88.60 \
+  --bmc-ip 192.168.88.160 \
+  --once
+```
+
+Then verify that the server is visible through the API and Web UI:
+
+```bash
+curl http://192.168.88.240:8000/api/v1/servers
+```
+
 ## Validate From Another Host
 
 From the MacBook or another lab host:
@@ -132,7 +165,7 @@ curl http://192.168.88.240:8000/health
 open http://192.168.88.240:3000
 ```
 
-If connected through VPN, make sure the VPN routes `192.168.88.0/24` to the lab.
+If connected through VPN, make sure the VPN routes `192.168.88.0/24` to the lab. If the Web UI shows `Backend API is not reachable`, verify `.env`, run `docker compose up --build -d` again, and hard-refresh the browser.
 
 ## Stop Or Update
 

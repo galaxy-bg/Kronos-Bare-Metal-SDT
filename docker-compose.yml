@@ -23,7 +23,7 @@ services:
     container_name: kdx-sdt-backend
     environment:
       DATABASE_URL: postgresql+psycopg://kronos:kronos@postgres:5432/kronos_sdt
-      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     ports:
       - "8000:8000"
     depends_on:
@@ -40,7 +40,7 @@ services:
       context: ./frontend
     container_name: kdx-sdt-frontend
     environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
     depends_on:
