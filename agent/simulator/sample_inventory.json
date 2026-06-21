@@ -1,0 +1,50 @@
+{
+  "system": {
+    "vendor": "HPE",
+    "model": "ProLiant DL380 Gen11",
+    "product_name": "ProLiant DL380 Gen11",
+    "serial_number": "LAB-FAKE-001"
+  },
+  "dmi": {
+    "bios_vendor": "HPE",
+    "bios_version": "U54",
+    "chassis_type": "Rack Mount"
+  },
+  "cpu": [
+    {
+      "socket": "CPU1",
+      "model": "Intel Xeon Gold 6430",
+      "cores": 32,
+      "threads": 64
+    }
+  ],
+  "memory": {
+    "total_gb": 256,
+    "dimms": [
+      {
+        "slot": "PROC 1 DIMM 1",
+        "size_gb": 32,
+        "speed_mt": 4800
+      }
+    ]
+  },
+  "storage": [
+    {
+      "name": "sda",
+      "type": "SSD",
+      "size_gb": 960
+    }
+  ],
+  "network": [
+    {
+      "name": "eth0",
+      "mac": "00:11:22:33:44:55",
+      "ip": "192.168.88.50"
+    }
+  ],
+  "bmc": {
+    "vendor": "HPE",
+    "type": "iLO",
+    "ip": "192.168.88.151"
+  }
+}

@@ -68,7 +68,7 @@ Expected behavior:
 
 The Control Node runs the central KDX SDT services.
 
-In the initial lab, the Control Node is the MacBook M2 connected to the managed lab VLAN with static IP `192.168.88.240`.
+In the initial lab, the Control Node is a VM connected to VLAN 88 with static IP `192.168.88.240`. The MacBook is used as an admin workstation over VPN.
 
 Phase-1 services:
 

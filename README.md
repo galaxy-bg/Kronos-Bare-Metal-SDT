@@ -25,6 +25,7 @@ Phase-1 intentionally does not include BIOS configuration, firmware updates, or 
 - [Phase-1 MVP Scope](docs/phase-1.md)
 - [HLD Context](docs/hld-context.md)
 - [Lab Network Design](docs/lab-network-design.md)
+- [Control Plane VM Runbook](docs/control-plane-vm-runbook.md)
 
 ## Quick Start
 
@@ -44,6 +45,20 @@ Lab control plane profile:
 - Control plane IP: `192.168.88.240`
 - Agent controller URL: `http://192.168.88.240:8000`
 - Operator Web UI: `http://192.168.88.240:3000`
+
+## Fake Agent
+
+Register a synthetic server against the lab control plane:
+
+```bash
+python3 agent/simulator/fake_agent.py \
+  --controller http://192.168.88.240:8000 \
+  --serial LAB-FAKE-001 \
+  --hostname fake-dl380-01 \
+  --agent-ip 192.168.88.50 \
+  --bmc-ip 192.168.88.151 \
+  --once
+```
 
 ## Seed Example
 

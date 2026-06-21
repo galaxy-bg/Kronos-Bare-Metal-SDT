@@ -26,8 +26,8 @@ PXE/TFTP: Not required for Phase-1
              +-----------------------+-----------------------+
              |                                               |
   +----------+-----------+                       +-----------+----------+
-  | Control Plane Node   |                       | Bare-Metal Server    |
-  | MacBook M2           |                       | kdxOS Live USB    |
+  | Control Plane VM     |                       | Bare-Metal Server    |
+  | 192.168.88.240       |                       | kdxOS Live USB       |
   | 192.168.88.240       |                       | eth0 via DHCP        |
   +----------+-----------+                       +-----------+----------+
              |                                               |
@@ -38,7 +38,7 @@ PXE/TFTP: Not required for Phase-1
 
 ## Control Plane Node
 
-The control plane node is the MacBook M2 connected to the lab switch.
+The control plane node is a lab VM connected to VLAN 88. The MacBook is used as an admin workstation over VPN.
 
 Required network settings:
 
@@ -56,6 +56,8 @@ The control plane runs:
 
 These services can initially run with Docker Compose. Kubernetes deployment profiles can be added later with k3d/k3s for local development and RKE2 for production-like clusters.
 
+See [Control Plane VM Runbook](control-plane-vm-runbook.md) for VM installation and startup steps.
+
 ## Bare-Metal Server Flow
 
 1. Server boots from KDX Live USB.
@@ -71,9 +73,9 @@ These services can initially run with Docker Compose. Kubernetes deployment prof
 For the MVP, the controller URL is explicit and static.
 
 ```env
-KRONOS_CONTROLLER_URL=http://192.168.88.240:8000
-KRONOS_AGENT_INTERFACE=eth0
-KRONOS_HEARTBEAT_INTERVAL=60
+KDX_CONTROLLER_URL=http://192.168.88.240:8000
+KDX_AGENT_INTERFACE=eth0
+KDX_HEARTBEAT_INTERVAL=60
 ```
 
 Future discovery options:
@@ -98,7 +100,7 @@ The control plane IP should be excluded from the DHCP pool or reserved on the sw
 ## Phase-1 Notes
 
 - The lab switch provides DHCP.
-- MacBook does not run DHCP for this profile.
+- MacBook does not run DHCP or control-plane services for this profile.
 - PXE, TFTP, and network boot are not required.
 - USB boot is the only Phase-1 boot method.
 - The agent must be able to reach `192.168.88.240:8000` from its DHCP-assigned address.
