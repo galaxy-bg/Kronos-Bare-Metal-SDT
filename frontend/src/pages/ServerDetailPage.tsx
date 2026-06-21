@@ -103,7 +103,7 @@ export function ServerDetailPage() {
             title="Management"
             rows={[
               ['Agent IP', server.agent_ip ?? '-'],
-              ['BMC IP', server.bmc_ip ?? '-'],
+              ['iLO / iDRAC / IPMI IP', server.bmc_ip ?? '-'],
               ['Created', formatDate(server.created_at)],
               ['Updated', formatDate(server.updated_at)],
             ]}

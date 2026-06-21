@@ -161,7 +161,7 @@ export function DashboardPage() {
   }
 
   function exportCsv() {
-    const header = ['Hostname', 'Vendor', 'Model', 'Serial Number', 'Agent IP', 'BMC IP', 'Status', 'Last Seen'];
+    const header = ['Hostname', 'Vendor', 'Model', 'Serial Number', 'Agent IP', 'iLO / iDRAC / IPMI IP', 'Status', 'Last Seen'];
     const rows = servers.map((server) => [
       server.hostname ?? '',
       server.vendor ?? '',
@@ -210,7 +210,7 @@ export function DashboardPage() {
           Server Discovery
         </Typography>
         <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, fontSize: 17 }}>
-          Discover, register and manage bare-metal servers from KDX Live USB agents on VLAN 88.
+          Discover, register and manage bare-metal servers from KDX Live USB agents.
         </Typography>
       </Box>
 
@@ -257,7 +257,7 @@ export function DashboardPage() {
                 <TableCell>Model</TableCell>
                 <TableCell>Serial Number</TableCell>
                 <TableCell>Agent IP</TableCell>
-                <TableCell>BMC IP</TableCell>
+                <TableCell>iLO / iDRAC / IPMI IP</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Last Seen</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -334,7 +334,7 @@ export function DashboardPage() {
               onChange={(event) => setForm({ ...form, product_name: event.target.value })}
             />
             <TextField label="Agent IP" value={form.agent_ip ?? ''} onChange={(event) => setForm({ ...form, agent_ip: event.target.value })} />
-            <TextField label="BMC / iLO IP" value={form.bmc_ip ?? ''} onChange={(event) => setForm({ ...form, bmc_ip: event.target.value })} />
+            <TextField label="iLO / iDRAC / IPMI IP" value={form.bmc_ip ?? ''} onChange={(event) => setForm({ ...form, bmc_ip: event.target.value })} />
           </Stack>
         </DialogContent>
         <DialogActions>
