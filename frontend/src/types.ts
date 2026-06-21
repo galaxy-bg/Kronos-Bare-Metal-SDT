@@ -29,3 +29,7 @@ export type InventoryRecord = {
 export type ServerDetail = ServerSummary & {
   inventories: InventoryRecord[];
 };
+
+export type ServerUpdate = Partial<
+  Pick<ServerSummary, 'vendor' | 'model' | 'product_name' | 'hostname' | 'agent_ip' | 'bmc_ip' | 'status'>
+>;

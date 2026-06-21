@@ -1,6 +1,6 @@
-# KronOS Agent
+# KDX Agent
 
-The Phase-1 agent will run from a bootable Linux USB image and communicate with the KronOS Controller.
+The Phase-1 agent will run from a bootable Linux USB image and communicate with the KDX Controller.
 
 Initial responsibilities:
 

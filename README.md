@@ -1,12 +1,12 @@
-# KronOS SDT
+# KDX SDT
 
 Bare Metal Discovery & Deployment Platform
 
-KronOS SDT is a centralized bare-metal server discovery, inventory, deployment, and lifecycle management platform.
+KDX SDT is a centralized bare-metal server discovery, inventory, deployment, and lifecycle management platform.
 
 Phase-1 MVP focuses on:
 
-- Booting servers from a KronOS Live USB
+- Booting servers from a KDX Live USB
 - Automatic registration to a central controller
 - Hardware inventory collection
 - Web-based server management portal
@@ -64,7 +64,7 @@ curl -X POST http://localhost:8000/api/v1/agents/register \
 ## Repository Structure
 
 ```text
-kronos-sdt/
+kdx-sdt/
 ├── agent/
 ├── backend/
 │   ├── alembic/

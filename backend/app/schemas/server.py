@@ -34,6 +34,16 @@ class ServerDetail(ServerRead):
     inventories: list[InventoryRead] = Field(default_factory=list)
 
 
+class ServerUpdate(BaseModel):
+    vendor: str | None = None
+    model: str | None = None
+    product_name: str | None = None
+    hostname: str | None = None
+    agent_ip: str | None = None
+    bmc_ip: str | None = None
+    status: str | None = None
+
+
 class DashboardStats(BaseModel):
     total_servers: int
     online_servers: int

@@ -1,6 +1,6 @@
-# KronOS SDT Lab Network Design
+# KDX SDT Lab Network Design
 
-This document defines the first lab network profile for KronOS SDT Phase-1.
+This document defines the first lab network profile for KDX SDT Phase-1.
 
 ## Lab Profile
 
@@ -10,7 +10,7 @@ The initial lab uses an existing switch and a managed network in the `192.168.88
 Managed Lab VLAN: 192.168.88.0/24
 Control Plane IP: 192.168.88.240
 DHCP Provider: Lab switch or upstream DHCP service
-Boot Method: KronOS Live USB
+Boot Method: KDX Live USB
 PXE/TFTP: Not required for Phase-1
 ```
 
@@ -27,7 +27,7 @@ PXE/TFTP: Not required for Phase-1
              |                                               |
   +----------+-----------+                       +-----------+----------+
   | Control Plane Node   |                       | Bare-Metal Server    |
-  | MacBook M2           |                       | kronosOS Live USB    |
+  | MacBook M2           |                       | kdxOS Live USB    |
   | 192.168.88.240       |                       | eth0 via DHCP        |
   +----------+-----------+                       +-----------+----------+
              |                                               |
@@ -58,10 +58,10 @@ These services can initially run with Docker Compose. Kubernetes deployment prof
 
 ## Bare-Metal Server Flow
 
-1. Server boots from KronOS Live USB.
+1. Server boots from KDX Live USB.
 2. `eth0` connects to the managed lab VLAN.
 3. Server receives an IP address from DHCP.
-4. KronOS Agent reads the controller URL from its local configuration.
+4. KDX Agent reads the controller URL from its local configuration.
 5. Agent registers to `http://192.168.88.240:8000/api/v1/agents/register`.
 6. Agent uploads inventory to `http://192.168.88.240:8000/api/v1/agents/inventory`.
 7. Agent sends heartbeat to `http://192.168.88.240:8000/api/v1/agents/heartbeat`.
@@ -79,7 +79,7 @@ KRONOS_HEARTBEAT_INTERVAL=60
 Future discovery options:
 
 - DHCP vendor option for controller URL
-- DNS name such as `kronos-controller.lab`
+- DNS name such as `kdx-controller.lab`
 - Redundant controller endpoint list
 
 ## Addressing Rules
@@ -88,7 +88,7 @@ Recommended lab reservations:
 
 | Purpose | Address |
 | --- | --- |
-| KronOS control plane | `192.168.88.240` |
+| KDX control plane | `192.168.88.240` |
 | DHCP pool | Switch-managed |
 | Bare-metal agents | DHCP-assigned |
 | BMC/iLO interfaces | DHCP or reserved IPs, depending on lab policy |

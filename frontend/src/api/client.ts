@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { DashboardStats, ServerDetail, ServerSummary } from '../types';
+import type { DashboardStats, ServerDetail, ServerSummary, ServerUpdate } from '../types';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
@@ -18,4 +18,13 @@ export async function fetchServers(): Promise<ServerSummary[]> {
 export async function fetchServer(serverId: string): Promise<ServerDetail> {
   const response = await api.get<ServerDetail>(`/api/v1/servers/${serverId}`);
   return response.data;
+}
+
+export async function updateServer(serverId: number, payload: ServerUpdate): Promise<ServerSummary> {
+  const response = await api.patch<ServerSummary>(`/api/v1/servers/${serverId}`, payload);
+  return response.data;
+}
+
+export async function deleteServer(serverId: number): Promise<void> {
+  await api.delete(`/api/v1/servers/${serverId}`);
 }

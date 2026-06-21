@@ -1,6 +1,6 @@
-# KronOS SDT Phase-1 MVP
+# KDX SDT Phase-1 MVP
 
-Phase-1 provides discovery, registration, inventory storage, heartbeat tracking, and a web UI for bare-metal servers booted from a KronOS Live USB.
+Phase-1 provides discovery, registration, inventory storage, heartbeat tracking, and a web UI for bare-metal servers booted from a KDX Live USB.
 
 ## Included
 

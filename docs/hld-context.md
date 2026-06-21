@@ -1,8 +1,8 @@
-# KronOS SDT HLD Context
+# KDX SDT HLD Context
 
-This document captures the initial high-level design context for KronOS SDT Phase-1.
+This document captures the initial high-level design context for KDX SDT Phase-1.
 
-KronOS SDT is designed around a central controller and multiple bare-metal servers booted with kronosOS from a Live USB image. The first goal is discovery and inventory, not provisioning or lifecycle automation.
+KDX SDT is designed around a central controller and multiple bare-metal servers booted with kdxOS from a Live USB image. The first goal is discovery and inventory, not provisioning or lifecycle automation.
 
 ## Logical Topology
 
@@ -16,7 +16,7 @@ KronOS SDT is designed around a central controller and multiple bare-metal serve
                     +----+----+           +----+----+           +----+----+
                     |   ILO   |           |   ILO   |           |   ILO   |
                     | Server  |           | Server  |           | Server  |
-                    | kronosOS|           | kronosOS|           | kronosOS|
+                    | kdxOS|           | kdxOS|           | kdxOS|
                     +----+----+           +----+----+           +----+----+
                          | eth0                | eth0                | eth0
                          +---------------------+---------------------+
@@ -48,7 +48,7 @@ Phase-1 only detects and stores BMC information. It does not perform power contr
 
 ### Managed VLAN with DHCP
 
-The managed VLAN provides network connectivity to the operating system booted from the KronOS Live USB.
+The managed VLAN provides network connectivity to the operating system booted from the KDX Live USB.
 
 Initial lab network:
 
@@ -59,14 +59,14 @@ Initial lab network:
 
 Expected behavior:
 
-- The server boots into kronosOS from Live USB.
+- The server boots into kdxOS from Live USB.
 - The `eth0` interface receives an IP address from DHCP.
-- The KronOS Agent uses this network path to reach the Control Node API at `http://192.168.88.240:8000`.
+- The KDX Agent uses this network path to reach the Control Node API at `http://192.168.88.240:8000`.
 - The agent registers the server, uploads inventory, and sends heartbeats.
 
 ## Control Node
 
-The Control Node runs the central KronOS SDT services.
+The Control Node runs the central KDX SDT services.
 
 In the initial lab, the Control Node is the MacBook M2 connected to the managed lab VLAN with static IP `192.168.88.240`.
 
@@ -85,9 +85,9 @@ Responsibilities:
 - Expose server inventory through REST APIs
 - Provide a web portal for discovered servers
 
-## kronosOS Live Environment
+## kdxOS Live Environment
 
-`kronosOS` represents the temporary operating environment booted on target bare-metal servers.
+`kdxOS` represents the temporary operating environment booted on target bare-metal servers.
 
 Phase-1 agent responsibilities:
 
@@ -143,7 +143,7 @@ Mapping from HLD to backend:
 
 | HLD Field | Backend Field | Notes |
 | --- | --- | --- |
-| `hostname` | `servers.hostname` | OS hostname from kronosOS |
+| `hostname` | `servers.hostname` | OS hostname from kdxOS |
 | `serial_number` | `servers.serial_number` | Primary identity for registration updates |
 | `product_id` | `servers.product_name` or inventory JSON | Vendor-specific value can be normalized later |
 | `discovered_ip` | `servers.agent_ip` | IP address assigned on managed VLAN |
@@ -151,9 +151,9 @@ Mapping from HLD to backend:
 
 ## Phase-1 Runtime Flow
 
-1. Server boots from KronOS Live USB into kronosOS.
+1. Server boots from KDX Live USB into kdxOS.
 2. `eth0` receives an address from DHCP on the managed VLAN.
-3. KronOS Agent collects identity and hardware inventory.
+3. KDX Agent collects identity and hardware inventory.
 4. Agent calls `POST http://192.168.88.240:8000/api/v1/agents/register`.
 5. Control Node creates or updates the server record.
 6. Agent calls `POST http://192.168.88.240:8000/api/v1/agents/inventory`.

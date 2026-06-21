@@ -25,7 +25,6 @@ const theme = createTheme({
   },
   typography: {
     fontFamily: ['Inter', 'Roboto', 'Arial', 'sans-serif'].join(','),
-    letterSpacing: 0,
   },
 });
 

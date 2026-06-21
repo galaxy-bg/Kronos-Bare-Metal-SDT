@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.models.server import Server
-from app.schemas.server import DashboardStats, ServerDetail, ServerRead
+from app.schemas.server import DashboardStats, ServerDetail, ServerRead, ServerUpdate
 
 router = APIRouter()
 OFFLINE_AFTER = timedelta(minutes=5)
@@ -47,3 +47,27 @@ def get_server(server_id: int, db: Session = Depends(get_db)) -> Server:
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
     return server
+
+
+@router.patch("/{server_id}", response_model=ServerRead)
+def update_server(server_id: int, payload: ServerUpdate, db: Session = Depends(get_db)) -> Server:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(server, field, value)
+
+    db.commit()
+    db.refresh(server)
+    return server
+
+
+@router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_server(server_id: int, db: Session = Depends(get_db)) -> None:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    db.delete(server)
+    db.commit()

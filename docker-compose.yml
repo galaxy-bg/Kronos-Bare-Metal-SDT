@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: kronos-sdt-postgres
+    container_name: kdx-sdt-postgres
     environment:
       POSTGRES_DB: kronos_sdt
       POSTGRES_USER: kronos
@@ -17,9 +17,10 @@ services:
       retries: 10
 
   backend:
+    image: kdx-sdt-backend:latest
     build:
       context: ./backend
-    container_name: kronos-sdt-backend
+    container_name: kdx-sdt-backend
     environment:
       DATABASE_URL: postgresql+psycopg://kronos:kronos@postgres:5432/kronos_sdt
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
@@ -34,9 +35,10 @@ services:
       - ./backend/alembic.ini:/app/alembic.ini
 
   frontend:
+    image: kdx-sdt-frontend:latest
     build:
       context: ./frontend
-    container_name: kronos-sdt-frontend
+    container_name: kdx-sdt-frontend
     environment:
       VITE_API_BASE_URL: http://localhost:8000
     ports:

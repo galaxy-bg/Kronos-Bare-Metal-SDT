@@ -5,7 +5,7 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 
 app = FastAPI(
-    title="KronOS SDT API",
+    title="KDX SDT API",
     description="Bare Metal Discovery & Deployment Platform",
     version="0.1.0",
 )

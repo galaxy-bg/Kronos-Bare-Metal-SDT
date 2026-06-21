@@ -11,7 +11,7 @@ export default function App() {
             <StorageIcon color="primary" />
             <Box>
               <Typography variant="h6" sx={{ lineHeight: 1.1, fontWeight: 800 }}>
-                KronOS SDT
+                KDX SDT
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Bare Metal Discovery & Deployment Platform
