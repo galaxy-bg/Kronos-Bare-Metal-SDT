@@ -46,6 +46,7 @@ def server_to_read(server: Server) -> dict[str, Any]:
         "hostname": server.hostname,
         "agent_ip": server.agent_ip,
         "bmc_ip": server.bmc_ip,
+        "management_config_json": server.management_config_json,
         "agent_reachable": ping_ip(server.agent_ip),
         "bmc_reachable": ping_ip(server.bmc_ip),
         "status": server.status,

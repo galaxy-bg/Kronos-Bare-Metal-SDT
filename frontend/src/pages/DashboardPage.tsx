@@ -23,8 +23,12 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import CancelIcon from '@mui/icons-material/Cancel';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import DnsIcon from '@mui/icons-material/Dns';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -36,7 +40,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import { Link as RouterLink } from 'react-router-dom';
 import { deleteServer, fetchServers, fetchStats, updateServer } from '../api/client';
-import type { DashboardStats, ServerSummary, ServerUpdate } from '../types';
+import type { DashboardStats, ManagementConfig, ServerSummary, ServerUpdate } from '../types';
 
 const emptyStats: DashboardStats = {
   total_servers: 0,
@@ -68,21 +72,25 @@ function StatusChip({ status }: { status: string }) {
 }
 
 function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
-  if (reachable === null) {
-    return <Chip size="small" label="Unknown" sx={{ bgcolor: '#f3f5f5', color: '#62666f' }} />;
-  }
+  const label = reachable === null ? 'Unknown' : reachable ? 'Online' : 'Offline';
+  const title = reachable === null ? 'Connection status is unknown' : reachable ? 'Connection available' : 'Connection unavailable';
+  const icon = reachable === null ? <HelpOutlineIcon /> : reachable ? <CheckCircleIcon /> : <CancelIcon />;
 
   return (
-    <Chip
-      size="small"
-      label={reachable ? 'Ping OK' : 'No Ping'}
-      sx={{
-        bgcolor: reachable ? '#e7f7ef' : '#fff1ef',
-        color: reachable ? '#1f7d55' : '#b23b32',
-        border: '1px solid',
-        borderColor: reachable ? '#bfe8d2' : '#f2c4bf',
-      }}
-    />
+    <Tooltip title={title} arrow>
+      <Chip
+        size="small"
+        icon={icon}
+        label={label}
+        sx={{
+          bgcolor: reachable ? '#e7f7ef' : reachable === false ? '#fff1ef' : '#f3f5f5',
+          color: reachable ? '#1f7d55' : reachable === false ? '#b23b32' : '#62666f',
+          border: '1px solid',
+          borderColor: reachable ? '#bfe8d2' : reachable === false ? '#f2c4bf' : '#dfe5e3',
+          '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
+        }}
+      />
+    </Tooltip>
   );
 }
 
@@ -106,7 +114,7 @@ export function DashboardPage() {
   const [selectedServer, setSelectedServer] = useState<ServerSummary | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [managementIpOpen, setManagementIpOpen] = useState(false);
-  const [managementIp, setManagementIp] = useState('');
+  const [managementConfig, setManagementConfig] = useState<ManagementConfig>({});
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
 
@@ -154,7 +162,10 @@ export function DashboardPage() {
 
   function openManagementIp() {
     if (!selectedServer) return;
-    setManagementIp(selectedServer.bmc_ip ?? '');
+    setManagementConfig({
+      ...(selectedServer.management_config_json ?? {}),
+      ip: selectedServer.management_config_json?.ip ?? selectedServer.bmc_ip ?? '',
+    });
     setManagementIpOpen(true);
     closeMenu();
   }
@@ -162,14 +173,25 @@ export function DashboardPage() {
   function closeManagementIp() {
     setManagementIpOpen(false);
     setSelectedServer(null);
-    setManagementIp('');
+    setManagementConfig({});
   }
 
   async function saveManagementIp() {
     if (!selectedServer) return;
     setSaving(true);
     try {
-      const updated = await updateServer(selectedServer.id, { bmc_ip: managementIp.trim() || null });
+      const normalizedConfig: ManagementConfig = {
+        ip: managementConfig.ip?.trim() || null,
+        subnet: managementConfig.subnet?.trim() || null,
+        gateway: managementConfig.gateway?.trim() || null,
+        dns: managementConfig.dns?.trim() || null,
+        ntp: managementConfig.ntp?.trim() || null,
+        vlan: managementConfig.vlan?.trim() || null,
+      };
+      const updated = await updateServer(selectedServer.id, {
+        bmc_ip: normalizedConfig.ip ?? null,
+        management_config_json: normalizedConfig,
+      });
       setServers((current) => current.map((server) => (server.id === updated.id ? updated : server)));
       await load();
       closeManagementIp();
@@ -378,7 +400,7 @@ export function DashboardPage() {
         </MenuItem>
         <MenuItem onClick={openManagementIp}>
           <SettingsEthernetIcon fontSize="small" sx={{ mr: 1 }} />
-          Set Management IP
+          Set Management Network
         </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
@@ -390,26 +412,76 @@ export function DashboardPage() {
         </MenuItem>
       </Menu>
 
-      <Dialog open={managementIpOpen} onClose={closeManagementIp} fullWidth maxWidth="xs">
-        <DialogTitle sx={{ fontWeight: 900 }}>Set Management IP</DialogTitle>
+      <Dialog open={managementIpOpen} onClose={closeManagementIp} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Set Management Network</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Typography color="text.secondary">
               {selectedServer?.hostname ?? selectedServer?.serial_number}
             </Typography>
-            <TextField
-              autoFocus
-              label="iLO / iDRAC / IPMI IP"
-              placeholder="192.168.88.160"
-              value={managementIp}
-              onChange={(event) => setManagementIp(event.target.value)}
-            />
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  autoFocus
+                  fullWidth
+                  label="iLO / iDRAC / IPMI IP"
+                  placeholder="192.168.88.160"
+                  value={managementConfig.ip ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, ip: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Subnet Mask / CIDR"
+                  placeholder="255.255.255.0 or /24"
+                  value={managementConfig.subnet ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, subnet: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Gateway"
+                  placeholder="192.168.88.1"
+                  value={managementConfig.gateway ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, gateway: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="DNS"
+                  placeholder="192.168.88.1, 8.8.8.8"
+                  value={managementConfig.dns ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, dns: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="NTP"
+                  placeholder="pool.ntp.org"
+                  value={managementConfig.ntp ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, ntp: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="VLAN ID"
+                  placeholder="Optional"
+                  value={managementConfig.vlan ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, vlan: event.target.value })}
+                />
+              </Grid>
+            </Grid>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeManagementIp}>Cancel</Button>
           <Button onClick={saveManagementIp} variant="contained" disabled={saving}>
-            Save IP
+            Save Network
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,3 +1,12 @@
+export type ManagementConfig = {
+  ip?: string | null;
+  subnet?: string | null;
+  gateway?: string | null;
+  dns?: string | null;
+  ntp?: string | null;
+  vlan?: string | null;
+};
+
 export type DashboardStats = {
   total_servers: number;
   online_servers: number;
@@ -14,6 +23,7 @@ export type ServerSummary = {
   hostname: string | null;
   agent_ip: string | null;
   bmc_ip: string | null;
+  management_config_json: ManagementConfig | null;
   agent_reachable: boolean | null;
   bmc_reachable: boolean | null;
   status: 'online' | 'offline' | string;
@@ -33,5 +43,5 @@ export type ServerDetail = ServerSummary & {
 };
 
 export type ServerUpdate = Partial<
-  Pick<ServerSummary, 'vendor' | 'model' | 'product_name' | 'hostname' | 'agent_ip' | 'bmc_ip' | 'status'>
+  Pick<ServerSummary, 'vendor' | 'model' | 'product_name' | 'hostname' | 'agent_ip' | 'bmc_ip' | 'management_config_json' | 'status'>
 >;

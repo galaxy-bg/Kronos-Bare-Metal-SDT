@@ -9,8 +9,12 @@ import {
   Grid,
   Paper,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import CancelIcon from '@mui/icons-material/Cancel';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { fetchServer } from '../api/client';
@@ -24,21 +28,25 @@ function formatDate(value: string) {
 }
 
 function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
-  if (reachable === null) {
-    return <Chip size="small" label="Unknown" sx={{ bgcolor: '#f3f5f5', color: '#62666f' }} />;
-  }
+  const label = reachable === null ? 'Unknown' : reachable ? 'Online' : 'Offline';
+  const title = reachable === null ? 'Connection status is unknown' : reachable ? 'Connection available' : 'Connection unavailable';
+  const icon = reachable === null ? <HelpOutlineIcon /> : reachable ? <CheckCircleIcon /> : <CancelIcon />;
 
   return (
-    <Chip
-      size="small"
-      label={reachable ? 'Ping OK' : 'No Ping'}
-      sx={{
-        bgcolor: reachable ? '#e7f7ef' : '#fff1ef',
-        color: reachable ? '#1f7d55' : '#b23b32',
-        border: '1px solid',
-        borderColor: reachable ? '#bfe8d2' : '#f2c4bf',
-      }}
-    />
+    <Tooltip title={title} arrow>
+      <Chip
+        size="small"
+        icon={icon}
+        label={label}
+        sx={{
+          bgcolor: reachable ? '#e7f7ef' : reachable === false ? '#fff1ef' : '#f3f5f5',
+          color: reachable ? '#1f7d55' : reachable === false ? '#b23b32' : '#62666f',
+          border: '1px solid',
+          borderColor: reachable ? '#bfe8d2' : reachable === false ? '#f2c4bf' : '#dfe5e3',
+          '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
+        }}
+      />
+    </Tooltip>
   );
 }
 
@@ -134,6 +142,11 @@ export function ServerDetailPage() {
             rows={[
               ['Agent IP', <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />],
               ['iLO / iDRAC / IPMI IP', <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />],
+              ['Subnet', server.management_config_json?.subnet ?? '-'],
+              ['Gateway', server.management_config_json?.gateway ?? '-'],
+              ['DNS', server.management_config_json?.dns ?? '-'],
+              ['NTP', server.management_config_json?.ntp ?? '-'],
+              ['VLAN', server.management_config_json?.vlan ?? '-'],
               ['Created', formatDate(server.created_at)],
               ['Updated', formatDate(server.updated_at)],
             ]}

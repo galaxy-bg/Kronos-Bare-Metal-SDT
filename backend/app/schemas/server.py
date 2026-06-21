@@ -22,6 +22,7 @@ class ServerRead(BaseModel):
     hostname: str | None
     agent_ip: str | None
     bmc_ip: str | None
+    management_config_json: dict[str, Any] | None = None
     agent_reachable: bool | None = None
     bmc_reachable: bool | None = None
     status: str
@@ -43,6 +44,7 @@ class ServerUpdate(BaseModel):
     hostname: str | None = None
     agent_ip: str | None = None
     bmc_ip: str | None = None
+    management_config_json: dict[str, Any] | None = None
     status: str | None = None
 
 
