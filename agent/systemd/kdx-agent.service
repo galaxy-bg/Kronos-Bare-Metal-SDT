@@ -1,0 +1,14 @@
+[Unit]
+Description=KDX SDT Live Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/kdx-agent/agent.env
+ExecStart=/usr/local/bin/kdx-agent --config /etc/kdx-agent/agent.env
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

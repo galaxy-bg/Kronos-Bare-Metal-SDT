@@ -26,6 +26,7 @@ Phase-1 intentionally does not include BIOS configuration, firmware updates, or 
 - [HLD Context](docs/hld-context.md)
 - [Lab Network Design](docs/lab-network-design.md)
 - [Control Plane VM Runbook](docs/control-plane-vm-runbook.md)
+- [Agent And Live USB Plan](docs/agent-liveusb-plan.md)
 
 ## Quick Start
 
@@ -45,6 +46,17 @@ Lab control plane profile:
 - Control plane IP: `192.168.88.240`
 - Agent controller URL: `http://192.168.88.240:8000`
 - Operator Web UI: `http://192.168.88.240:3000`
+
+## Agent VM Test
+
+Install the real KDX agent on a Rocky Linux test VM:
+
+```bash
+bash agent/install-rocky-agent.sh
+vi /etc/kdx-agent/agent.env
+/usr/local/bin/kdx-agent --config /etc/kdx-agent/agent.env --once
+systemctl start kdx-agent
+```
 
 ## Fake Agent
 
