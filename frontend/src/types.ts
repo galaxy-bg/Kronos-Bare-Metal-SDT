@@ -14,6 +14,8 @@ export type ServerSummary = {
   hostname: string | null;
   agent_ip: string | null;
   bmc_ip: string | null;
+  agent_reachable: boolean | null;
+  bmc_reachable: boolean | null;
   status: 'online' | 'offline' | string;
   last_seen: string;
   created_at: string;

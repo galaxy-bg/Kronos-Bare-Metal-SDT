@@ -67,6 +67,36 @@ function StatusChip({ status }: { status: string }) {
   );
 }
 
+function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
+  if (reachable === null) {
+    return <Chip size="small" label="Unknown" sx={{ bgcolor: '#f3f5f5', color: '#62666f' }} />;
+  }
+
+  return (
+    <Chip
+      size="small"
+      label={reachable ? 'Ping OK' : 'No Ping'}
+      sx={{
+        bgcolor: reachable ? '#e7f7ef' : '#fff1ef',
+        color: reachable ? '#1f7d55' : '#b23b32',
+        border: '1px solid',
+        borderColor: reachable ? '#bfe8d2' : '#f2c4bf',
+      }}
+    />
+  );
+}
+
+function IpReachability({ ip, reachable }: { ip: string | null; reachable: boolean | null }) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+      <Typography component="span" sx={{ fontWeight: 800 }}>
+        {ip ?? '-'}
+      </Typography>
+      {ip && <ReachabilityChip reachable={reachable} />}
+    </Stack>
+  );
+}
+
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [servers, setServers] = useState<ServerSummary[]>([]);
@@ -305,8 +335,12 @@ export function DashboardPage() {
                   <TableCell>{server.vendor ?? '-'}</TableCell>
                   <TableCell>{server.model ?? '-'}</TableCell>
                   <TableCell>{server.serial_number}</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{server.agent_ip ?? '-'}</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{server.bmc_ip ?? '-'}</TableCell>
+                  <TableCell>
+                    <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />
+                  </TableCell>
+                  <TableCell>
+                    <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />
+                  </TableCell>
                   <TableCell>
                     <StatusChip status={server.status} />
                   </TableCell>

@@ -22,6 +22,8 @@ class ServerRead(BaseModel):
     hostname: str | None
     agent_ip: str | None
     bmc_ip: str | None
+    agent_reachable: bool | None = None
+    bmc_reachable: bool | None = None
     status: str
     last_seen: datetime
     created_at: datetime

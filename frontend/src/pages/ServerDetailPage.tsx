@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -21,6 +21,36 @@ function formatDate(value: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value));
+}
+
+function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
+  if (reachable === null) {
+    return <Chip size="small" label="Unknown" sx={{ bgcolor: '#f3f5f5', color: '#62666f' }} />;
+  }
+
+  return (
+    <Chip
+      size="small"
+      label={reachable ? 'Ping OK' : 'No Ping'}
+      sx={{
+        bgcolor: reachable ? '#e7f7ef' : '#fff1ef',
+        color: reachable ? '#1f7d55' : '#b23b32',
+        border: '1px solid',
+        borderColor: reachable ? '#bfe8d2' : '#f2c4bf',
+      }}
+    />
+  );
+}
+
+function IpReachability({ ip, reachable }: { ip: string | null; reachable: boolean | null }) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+      <Typography component="span" sx={{ fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>
+        {ip ?? '-'}
+      </Typography>
+      {ip && <ReachabilityChip reachable={reachable} />}
+    </Stack>
+  );
 }
 
 export function ServerDetailPage() {
@@ -102,8 +132,8 @@ export function ServerDetailPage() {
           <InfoPanel
             title="Management"
             rows={[
-              ['Agent IP', server.agent_ip ?? '-'],
-              ['iLO / iDRAC / IPMI IP', server.bmc_ip ?? '-'],
+              ['Agent IP', <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />],
+              ['iLO / iDRAC / IPMI IP', <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />],
               ['Created', formatDate(server.created_at)],
               ['Updated', formatDate(server.updated_at)],
             ]}
@@ -153,7 +183,7 @@ export function ServerDetailPage() {
   );
 }
 
-function InfoPanel({ title, rows }: { title: string; rows: Array<[string, string]> }) {
+function InfoPanel({ title, rows }: { title: string; rows: Array<[string, ReactNode]> }) {
   return (
     <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderColor: 'divider' }}>
       <Typography variant="h6" sx={{ fontWeight: 900 }}>
@@ -161,9 +191,9 @@ function InfoPanel({ title, rows }: { title: string; rows: Array<[string, string
       </Typography>
       <Stack spacing={1.2} sx={{ mt: 2 }}>
         {rows.map(([label, value]) => (
-          <Stack key={label} direction="row" justifyContent="space-between" spacing={2}>
+          <Stack key={label} direction="row" justifyContent="space-between" spacing={2} alignItems="center">
             <Typography color="text.secondary">{label}</Typography>
-            <Typography sx={{ fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>{value}</Typography>
+            <Box sx={{ fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>{value}</Box>
           </Stack>
         ))}
       </Stack>
