@@ -51,8 +51,19 @@ function formatDate(value: string) {
 }
 
 function StatusChip({ status }: { status: string }) {
-  const color = status === 'online' ? 'success' : 'default';
-  return <Chip size="small" color={color} label={status.toUpperCase()} />;
+  const online = status === 'online';
+  return (
+    <Chip
+      size="small"
+      label={status.toUpperCase()}
+      sx={{
+        bgcolor: online ? '#e7f7ef' : '#f3f5f5',
+        color: online ? '#1f7d55' : '#62666f',
+        border: '1px solid',
+        borderColor: online ? '#bfe8d2' : '#dfe5e3',
+      }}
+    />
+  );
 }
 
 export function DashboardPage() {
@@ -183,16 +194,31 @@ export function DashboardPage() {
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4" sx={{ fontWeight: 800 }}>
+      <Box
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: '#ffffff',
+          p: { xs: 2.5, md: 3 },
+          borderRadius: 2,
+        }}
+      >
+        <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 900, letterSpacing: 1.6 }}>
+          KDX SDT Control Plane
+        </Typography>
+        <Typography variant="h4" sx={{ fontWeight: 900, mt: 0.5 }}>
           Server Discovery
         </Typography>
-        <Typography color="text.secondary">
-          Registered bare-metal inventory from KDX Live USB agents.
+        <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, fontSize: 17 }}>
+          Discover, register and manage bare-metal servers from KDX Live USB agents on VLAN 88.
         </Typography>
       </Box>
 
-      {error && <Alert severity="warning">{error}</Alert>}
+      {error && (
+        <Alert severity="warning" sx={{ border: '1px solid #f2d6a2', bgcolor: '#fff8eb' }}>
+          {error}
+        </Alert>
+      )}
 
       <Grid container spacing={2}>
         <Grid item xs={12} md={4}>
@@ -206,17 +232,17 @@ export function DashboardPage() {
         </Grid>
       </Grid>
 
-      <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #d8dee8' }}>
+      <Paper variant="outlined" sx={{ overflow: 'hidden', borderColor: 'divider' }}>
+        <Box sx={{ px: { xs: 2, md: 2.5 }, py: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#ffffff' }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            Servers
+          <Typography variant="h6" sx={{ fontWeight: 900 }}>
+            Managed Servers
           </Typography>
             <Stack direction="row" spacing={1}>
               <Button startIcon={<RefreshIcon />} size="small" variant="outlined" onClick={load}>
                 Refresh
               </Button>
-              <Button startIcon={<DownloadIcon />} size="small" variant="outlined" onClick={exportCsv} disabled={servers.length === 0}>
+              <Button startIcon={<DownloadIcon />} size="small" variant="contained" onClick={exportCsv} disabled={servers.length === 0}>
                 Export CSV
               </Button>
             </Stack>
@@ -241,15 +267,15 @@ export function DashboardPage() {
               {servers.map((server) => (
                 <TableRow key={server.id} hover>
                   <TableCell>
-                    <Link component={RouterLink} to={`/servers/${server.id}`} underline="hover" sx={{ fontWeight: 700 }}>
+                    <Link component={RouterLink} to={`/servers/${server.id}`} underline="hover" sx={{ fontWeight: 900, color: 'text.primary' }}>
                       {server.hostname ?? server.serial_number}
                     </Link>
                   </TableCell>
                   <TableCell>{server.vendor ?? '-'}</TableCell>
                   <TableCell>{server.model ?? '-'}</TableCell>
                   <TableCell>{server.serial_number}</TableCell>
-                  <TableCell>{server.agent_ip ?? '-'}</TableCell>
-                  <TableCell>{server.bmc_ip ?? '-'}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{server.agent_ip ?? '-'}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{server.bmc_ip ?? '-'}</TableCell>
                   <TableCell>
                     <StatusChip status={server.status} />
                   </TableCell>
@@ -259,6 +285,7 @@ export function DashboardPage() {
                       aria-label={`Actions for ${server.hostname ?? server.serial_number}`}
                       size="small"
                       onClick={(event) => openMenu(event, server)}
+                      sx={{ border: '1px solid', borderColor: 'divider', bgcolor: '#ffffff' }}
                     >
                       <MoreVertIcon fontSize="small" />
                     </IconButton>
@@ -295,7 +322,7 @@ export function DashboardPage() {
       </Menu>
 
       <Dialog open={editOpen} onClose={closeEdit} fullWidth maxWidth="sm">
-        <DialogTitle>Edit Server</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900 }}>Edit Server</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <TextField label="Hostname" value={form.hostname ?? ''} onChange={(event) => setForm({ ...form, hostname: event.target.value })} />
@@ -323,14 +350,28 @@ export function DashboardPage() {
 
 function Metric({ title, value, icon }: { title: string; value: number; icon: ReactNode }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
+    <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderColor: 'divider' }}>
       <Stack direction="row" spacing={2} alignItems="center">
-        <Box sx={{ color: 'primary.main', display: 'grid', placeItems: 'center' }}>{icon}</Box>
+        <Box
+          sx={{
+            color: 'primary.main',
+            bgcolor: 'primary.light',
+            border: '1px solid',
+            borderColor: 'divider',
+            width: 48,
+            height: 48,
+            borderRadius: 1.5,
+            display: 'grid',
+            placeItems: 'center',
+          }}
+        >
+          {icon}
+        </Box>
         <Box>
-          <Typography color="text.secondary" variant="body2">
+          <Typography color="text.secondary" variant="body2" sx={{ fontWeight: 800 }}>
             {title}
           </Typography>
-          <Typography variant="h4" sx={{ fontWeight: 800 }}>
+          <Typography variant="h4" sx={{ fontWeight: 900 }}>
             {value}
           </Typography>
         </Box>

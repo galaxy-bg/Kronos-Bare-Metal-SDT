@@ -1,5 +1,6 @@
 html {
   min-width: 320px;
+  background: #fbfdfc;
 }
 
 body {
@@ -8,4 +9,40 @@ body {
 
 a {
   color: inherit;
+}
+
+.kdx-mark {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  flex: 0 0 auto;
+}
+
+.kdx-mark__blade {
+  position: absolute;
+  width: 34px;
+  height: 13px;
+  border-radius: 2px;
+  transform-origin: center;
+}
+
+.kdx-mark__blade--dark {
+  top: 10px;
+  left: 14px;
+  background: #101214;
+  transform: rotate(-45deg);
+}
+
+.kdx-mark__blade--mint {
+  top: 21px;
+  left: 3px;
+  background: #19b486;
+  transform: rotate(-45deg);
+}
+
+.kdx-mark__blade--soft {
+  top: 30px;
+  left: 15px;
+  background: #59c39c;
+  transform: rotate(45deg);
 }

@@ -66,10 +66,19 @@ export function ServerDetailPage() {
         </Button>
         <Box>
           <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="h4" sx={{ fontWeight: 800 }}>
+            <Typography variant="h4" sx={{ fontWeight: 900 }}>
               {server.hostname ?? server.serial_number}
             </Typography>
-            <Chip size="small" color={server.status === 'online' ? 'success' : 'default'} label={server.status.toUpperCase()} />
+            <Chip
+              size="small"
+              label={server.status.toUpperCase()}
+              sx={{
+                bgcolor: server.status === 'online' ? '#e7f7ef' : '#f3f5f5',
+                color: server.status === 'online' ? '#1f7d55' : '#62666f',
+                border: '1px solid',
+                borderColor: server.status === 'online' ? '#bfe8d2' : '#dfe5e3',
+              }}
+            />
           </Stack>
           <Typography color="text.secondary">
             {server.vendor ?? 'Unknown vendor'} {server.model ?? ''}
@@ -111,18 +120,29 @@ export function ServerDetailPage() {
         </Grid>
       </Grid>
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderColor: 'divider' }}>
+        <Typography variant="h6" sx={{ fontWeight: 900 }}>
           Hardware Inventory
         </Typography>
-        <Divider sx={{ my: 2 }} />
+        <Divider sx={{ my: 2, borderColor: 'divider' }} />
         <Grid container spacing={2}>
           {['system', 'cpu', 'memory', 'storage', 'network', 'bmc'].map((section) => (
             <Grid item xs={12} md={6} key={section}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700, textTransform: 'uppercase' }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 900, color: 'primary.dark', textTransform: 'uppercase' }}>
                 {section}
               </Typography>
-              <Box component="pre" sx={{ m: 0, p: 1.5, bgcolor: '#101828', color: '#e6edf3', borderRadius: 1, overflow: 'auto' }}>
+              <Box
+                component="pre"
+                sx={{
+                  m: 0,
+                  p: 1.5,
+                  bgcolor: '#202326',
+                  color: '#eef8f4',
+                  borderRadius: 1,
+                  overflow: 'auto',
+                  border: '1px solid #2f3a36',
+                }}
+              >
                 {JSON.stringify(latestInventory[section] ?? {}, null, 2)}
               </Box>
             </Grid>
@@ -135,15 +155,15 @@ export function ServerDetailPage() {
 
 function InfoPanel({ title, rows }: { title: string; rows: Array<[string, string]> }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+    <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderColor: 'divider' }}>
+      <Typography variant="h6" sx={{ fontWeight: 900 }}>
         {title}
       </Typography>
       <Stack spacing={1.2} sx={{ mt: 2 }}>
         {rows.map(([label, value]) => (
           <Stack key={label} direction="row" justifyContent="space-between" spacing={2}>
             <Typography color="text.secondary">{label}</Typography>
-            <Typography sx={{ fontWeight: 600, textAlign: 'right', overflowWrap: 'anywhere' }}>{value}</Typography>
+            <Typography sx={{ fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>{value}</Typography>
           </Stack>
         ))}
       </Stack>
