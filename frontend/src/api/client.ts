@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { DashboardStats, ServerDetail, ServerSummary, ServerUpdate } from '../types';
+import type { BulkDeleteResult, DashboardStats, ServerDetail, ServerSummary, ServerUpdate } from '../types';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
@@ -27,4 +27,9 @@ export async function updateServer(serverId: number, payload: ServerUpdate): Pro
 
 export async function deleteServer(serverId: number): Promise<void> {
   await api.delete(`/api/v1/servers/${serverId}`);
+}
+
+export async function bulkDeleteServers(serverIds: number[]): Promise<BulkDeleteResult> {
+  const response = await api.post<BulkDeleteResult>('/api/v1/servers/bulk-delete', { server_ids: serverIds });
+  return response.data;
 }

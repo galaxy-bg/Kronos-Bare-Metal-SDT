@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.models.server import Server
-from app.schemas.server import DashboardStats, ServerDetail, ServerRead, ServerUpdate
+from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ServerDetail, ServerRead, ServerUpdate
 
 router = APIRouter()
 OFFLINE_AFTER = timedelta(minutes=5)
@@ -85,6 +85,18 @@ def dashboard_stats(db: Session = Depends(get_db)) -> DashboardStats:
     online = db.scalar(select(func.count(Server.id)).where(Server.status == "online")) or 0
     offline = db.scalar(select(func.count(Server.id)).where(Server.status == "offline")) or 0
     return DashboardStats(total_servers=total, online_servers=online, offline_servers=offline)
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteResponse)
+def bulk_delete_servers(payload: BulkDeleteRequest, db: Session = Depends(get_db)) -> BulkDeleteResponse:
+    unique_ids = sorted(set(payload.server_ids))
+    servers = db.scalars(select(Server).where(Server.id.in_(unique_ids))).all()
+
+    for server in servers:
+        db.delete(server)
+
+    db.commit()
+    return BulkDeleteResponse(deleted=len(servers), requested=len(unique_ids))
 
 
 @router.get("/{server_id}", response_model=ServerDetail)

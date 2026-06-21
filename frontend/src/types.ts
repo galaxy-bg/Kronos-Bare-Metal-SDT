@@ -45,3 +45,8 @@ export type ServerDetail = ServerSummary & {
 export type ServerUpdate = Partial<
   Pick<ServerSummary, 'vendor' | 'model' | 'product_name' | 'hostname' | 'agent_ip' | 'bmc_ip' | 'management_config_json' | 'status'>
 >;
+
+export type BulkDeleteResult = {
+  deleted: number;
+  requested: number;
+};

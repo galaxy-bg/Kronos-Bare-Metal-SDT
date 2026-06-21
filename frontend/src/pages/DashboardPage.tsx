@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -28,6 +29,7 @@ import {
 } from '@mui/material';
 import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ClearIcon from '@mui/icons-material/Clear';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import DnsIcon from '@mui/icons-material/Dns';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -37,9 +39,10 @@ import LanIcon from '@mui/icons-material/Lan';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/Search';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import { Link as RouterLink } from 'react-router-dom';
-import { deleteServer, fetchServers, fetchStats, updateServer } from '../api/client';
+import { bulkDeleteServers, deleteServer, fetchServers, fetchStats, updateServer } from '../api/client';
 import type { DashboardStats, ManagementConfig, ServerSummary, ServerUpdate } from '../types';
 
 const emptyStats: DashboardStats = {
@@ -117,6 +120,31 @@ export function DashboardPage() {
   const [managementConfig, setManagementConfig] = useState<ManagementConfig>({});
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [filterText, setFilterText] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const normalizedFilter = filterText.trim().toLowerCase();
+  const filteredServers = servers.filter((server) => {
+    const matchesStatus = statusFilter === 'all' || server.status === statusFilter;
+    const searchable = [
+      server.hostname,
+      server.vendor,
+      server.model,
+      server.product_name,
+      server.serial_number,
+      server.agent_ip,
+      server.bmc_ip,
+      server.status,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return matchesStatus && (!normalizedFilter || searchable.includes(normalizedFilter));
+  });
+  const selectedVisibleIds = filteredServers.filter((server) => selectedIds.includes(server.id)).map((server) => server.id);
+  const allVisibleSelected = filteredServers.length > 0 && selectedVisibleIds.length === filteredServers.length;
+  const partiallyVisibleSelected = selectedVisibleIds.length > 0 && selectedVisibleIds.length < filteredServers.length;
 
   async function load() {
     try {
@@ -124,6 +152,7 @@ export function DashboardPage() {
       const [statsData, serverData] = await Promise.all([fetchStats(), fetchServers()]);
       setStats(statsData);
       setServers(serverData);
+      setSelectedIds((current) => current.filter((id) => serverData.some((server) => server.id === id)));
     } catch {
       setError('Backend API is not reachable.');
     } finally {
@@ -238,6 +267,40 @@ export function DashboardPage() {
     }
   }
 
+  function toggleServerSelection(serverId: number) {
+    setSelectedIds((current) => (current.includes(serverId) ? current.filter((id) => id !== serverId) : [...current, serverId]));
+  }
+
+  function toggleVisibleSelection() {
+    if (allVisibleSelected) {
+      setSelectedIds((current) => current.filter((id) => !filteredServers.some((server) => server.id === id)));
+      return;
+    }
+
+    setSelectedIds((current) => Array.from(new Set([...current, ...filteredServers.map((server) => server.id)])));
+  }
+
+  function clearFilters() {
+    setFilterText('');
+    setStatusFilter('all');
+  }
+
+  async function removeSelectedServers() {
+    const selectedServers = servers.filter((server) => selectedIds.includes(server.id));
+    if (selectedServers.length === 0) return;
+
+    const confirmed = window.confirm(`Delete ${selectedServers.length} selected server${selectedServers.length > 1 ? 's' : ''}?`);
+    if (!confirmed) return;
+
+    try {
+      await bulkDeleteServers(selectedServers.map((server) => server.id));
+      setSelectedIds([]);
+      await load();
+    } catch {
+      setError('Selected servers could not be deleted.');
+    }
+  }
+
   async function refreshList() {
     closeMenu();
     await load();
@@ -245,7 +308,7 @@ export function DashboardPage() {
 
   function exportCsv() {
     const header = ['Hostname', 'Vendor', 'Model', 'Serial Number', 'Agent IP', 'iLO / iDRAC / IPMI IP', 'Status', 'Last Seen'];
-    const rows = servers.map((server) => [
+    const rows = filteredServers.map((server) => [
       server.hostname ?? '',
       server.vendor ?? '',
       server.model ?? '',
@@ -325,16 +388,74 @@ export function DashboardPage() {
               <Button startIcon={<RefreshIcon />} size="small" variant="outlined" onClick={load}>
                 Refresh
               </Button>
-              <Button startIcon={<DownloadIcon />} size="small" variant="contained" onClick={exportCsv} disabled={servers.length === 0}>
+              <Button startIcon={<DownloadIcon />} size="small" variant="contained" onClick={exportCsv} disabled={filteredServers.length === 0}>
                 Export CSV
               </Button>
             </Stack>
+          </Stack>
+        </Box>
+        <Box sx={{ px: { xs: 2, md: 2.5 }, py: 1.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#fbfdfc' }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }}>
+            {selectedIds.length > 0 ? (
+              <>
+                <Typography sx={{ fontWeight: 900, minWidth: 170 }}>{selectedIds.length} selected</Typography>
+                <Button color="error" variant="outlined" size="small" startIcon={<DeleteOutlineIcon />} onClick={removeSelectedServers}>
+                  Delete Selected
+                </Button>
+                <Button size="small" startIcon={<ClearIcon />} onClick={() => setSelectedIds([])}>
+                  Clear Selection
+                </Button>
+              </>
+            ) : (
+              <>
+                <TextField
+                  size="small"
+                  label="Filter servers"
+                  placeholder="Hostname, serial, IP, vendor"
+                  value={filterText}
+                  onChange={(event) => setFilterText(event.target.value)}
+                  sx={{ minWidth: { md: 340 } }}
+                  InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} /> }}
+                />
+                <TextField
+                  select
+                  size="small"
+                  label="Status"
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  sx={{ minWidth: { md: 160 } }}
+                >
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="online">Online</MenuItem>
+                  <MenuItem value="offline">Offline</MenuItem>
+                </TextField>
+                {(filterText || statusFilter !== 'all') && (
+                  <Button size="small" startIcon={<ClearIcon />} onClick={clearFilters}>
+                    Clear
+                  </Button>
+                )}
+                <Box sx={{ flex: 1 }} />
+                <Typography color="text.secondary" sx={{ fontWeight: 800 }}>
+                  {filteredServers.length} shown
+                </Typography>
+              </>
+            )}
           </Stack>
         </Box>
         <TableContainer>
           <Table size="small">
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    size="small"
+                    checked={allVisibleSelected}
+                    indeterminate={partiallyVisibleSelected}
+                    onChange={toggleVisibleSelection}
+                    disabled={filteredServers.length === 0}
+                    inputProps={{ 'aria-label': 'Select visible servers' }}
+                  />
+                </TableCell>
                 <TableCell>Hostname</TableCell>
                 <TableCell>Vendor</TableCell>
                 <TableCell>Model</TableCell>
@@ -347,8 +468,18 @@ export function DashboardPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {servers.map((server) => (
-                <TableRow key={server.id} hover>
+              {filteredServers.map((server) => {
+                const selected = selectedIds.includes(server.id);
+                return (
+                <TableRow key={server.id} hover selected={selected}>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={selected}
+                      onChange={() => toggleServerSelection(server.id)}
+                      inputProps={{ 'aria-label': `Select ${server.hostname ?? server.serial_number}` }}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Link component={RouterLink} to={`/servers/${server.id}`} underline="hover" sx={{ fontWeight: 900, color: 'text.primary' }}>
                       {server.hostname ?? server.serial_number}
@@ -378,12 +509,13 @@ export function DashboardPage() {
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))}
-              {servers.length === 0 && (
+              );
+              })}
+              {filteredServers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9}>
+                  <TableCell colSpan={10}>
                     <Typography sx={{ py: 4, textAlign: 'center' }} color="text.secondary">
-                      No servers registered yet.
+                      {servers.length === 0 ? 'No servers registered yet.' : 'No servers match the current filters.'}
                     </Typography>
                   </TableCell>
                 </TableRow>

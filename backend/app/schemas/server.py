@@ -48,6 +48,15 @@ class ServerUpdate(BaseModel):
     status: str | None = None
 
 
+class BulkDeleteRequest(BaseModel):
+    server_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: int
+    requested: int
+
+
 class DashboardStats(BaseModel):
     total_servers: int
     online_servers: int
