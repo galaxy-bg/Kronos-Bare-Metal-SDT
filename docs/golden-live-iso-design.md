@@ -34,6 +34,8 @@ HPE tools:
 
 - HPE iLOrest
 - HPE Smart Storage Administrator CLI, normally `ssacli`
+- HPE `hponcfg`, useful for local iLO bootstrap when iLO IP and credentials are unknown
+- HPE `amsd` and `hp-health`, useful for HPE hardware health/inventory context
 - Optional later: `storcli` for non-HPE/Broadcom controllers if required
 
 Keep HPE binary packages under `iso/vendor/hpe/` in the repo or in a private artifact store. Do not download vendor packages during every ISO build unless package URLs are pinned and the build host has stable internet.
@@ -176,13 +178,14 @@ For the first version, do not block on perfect ISO automation. The fastest safe 
 
 1. Build a Rocky VM that behaves like the future Live ISO.
 2. Install `kdx-agent`.
-3. Add HPE RPMs manually.
-4. Validate `ilorest --version` and `ssacli version`.
-5. Snapshot this VM as the "golden agent VM".
-6. Convert the same package list and files into kickstart.
-7. Build the ISO.
-8. Boot the ISO in a VM.
-9. Boot the ISO on one HPE server.
+3. Download selected HPE RPMs with `iso/vendor/hpe/download-hpe-tools.sh`.
+4. Add HPE RPMs manually.
+5. Validate `ilorest --version`, `hponcfg -h` and `ssacli version`.
+6. Snapshot this VM as the "golden agent VM".
+7. Convert the same package list and files into kickstart.
+8. Build the ISO.
+9. Boot the ISO in a VM.
+10. Boot the ISO on one HPE server.
 
 ## Validation Checklist
 
