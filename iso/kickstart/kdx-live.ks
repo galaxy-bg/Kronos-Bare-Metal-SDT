@@ -17,6 +17,7 @@ repo --name=appstream --baseurl=https://dl.rockylinux.org/pub/rocky/9/AppStream/
 @^minimal-environment
 NetworkManager
 python3
+dracut-live
 dmidecode
 iproute
 util-linux
