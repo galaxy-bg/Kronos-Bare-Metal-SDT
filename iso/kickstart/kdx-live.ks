@@ -9,6 +9,9 @@ rootpw --lock
 selinux --enforcing
 firewall --enabled
 services --enabled=NetworkManager,kdx-agent
+zerombr
+clearpart --all --initlabel
+part / --fstype=ext4 --size=6144
 
 url --url=https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/
 repo --name=appstream --baseurl=https://dl.rockylinux.org/pub/rocky/9/AppStream/x86_64/os/
