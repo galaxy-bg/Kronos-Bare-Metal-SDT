@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/kdx-agent/agent.env
 ExecStart=/usr/local/bin/kdx-agent --config /etc/kdx-agent/agent.env
 Restart=always
