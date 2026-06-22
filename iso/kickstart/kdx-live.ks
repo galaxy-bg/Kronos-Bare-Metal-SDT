@@ -10,7 +10,7 @@ selinux --enforcing
 firewall --enabled
 services --enabled=NetworkManager,kdx-agent
 
-repo --name=baseos --baseurl=https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/
+url --url=https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/
 repo --name=appstream --baseurl=https://dl.rockylinux.org/pub/rocky/9/AppStream/x86_64/os/
 
 %packages
