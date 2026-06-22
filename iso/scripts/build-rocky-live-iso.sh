@@ -15,6 +15,7 @@ if ! command -v livemedia-creator >/dev/null 2>&1; then
 fi
 
 mkdir -p "${GENERATED_DIR}"
+rm -rf "${BUILD_DIR}/result"
 
 tar -czf "${BUNDLE_FILE}" \
   -C "${ROOT_DIR}" \
