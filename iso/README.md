@@ -10,3 +10,5 @@ Initial direction:
 - Include HPE iLOrest and `ssacli` packages for HPE ProLiant lab testing.
 
 See `docs/golden-live-iso-design.md`.
+
+Build and USB write steps are documented in `docs/live-iso-build-runbook.md`.

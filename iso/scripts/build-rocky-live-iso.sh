@@ -5,18 +5,55 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-/var/tmp/kdx-live-iso}"
 KS_FILE="${KS_FILE:-${ROOT_DIR}/iso/kickstart/kdx-live.ks}"
 ISO_NAME="${ISO_NAME:-kdx-live-rocky9.iso}"
+GENERATED_DIR="${BUILD_DIR}/generated"
+BUNDLE_FILE="${GENERATED_DIR}/kdx-live-bundle.tgz"
+GENERATED_KS="${GENERATED_DIR}/kdx-live.generated.ks"
 
 if ! command -v livemedia-creator >/dev/null 2>&1; then
   echo "livemedia-creator is required. Install lorax-lmc-novirt on a Rocky Linux builder VM." >&2
   exit 1
 fi
 
-mkdir -p "${BUILD_DIR}"
+mkdir -p "${GENERATED_DIR}"
+
+tar -czf "${BUNDLE_FILE}" \
+  -C "${ROOT_DIR}" \
+  agent/kdx-agent.py \
+  agent/systemd/kdx-agent.service \
+  agent/config/agent.env.example \
+  iso/vendor/hpe/rpms
+
+cp "${KS_FILE}" "${GENERATED_KS}"
+
+cat >> "${GENERATED_KS}" <<'KS_EOF'
+
+%post --log=/root/kdx-live-bundle.log
+mkdir -p /opt/kdx-live-bundle /etc/kdx-agent /usr/local/bin
+base64 -d > /root/kdx-live-bundle.tgz <<'KDX_BUNDLE_EOF'
+KS_EOF
+
+base64 -w 76 "${BUNDLE_FILE}" >> "${GENERATED_KS}"
+
+cat >> "${GENERATED_KS}" <<'KS_EOF'
+KDX_BUNDLE_EOF
+
+tar -xzf /root/kdx-live-bundle.tgz -C /opt/kdx-live-bundle
+install -m 0755 /opt/kdx-live-bundle/agent/kdx-agent.py /usr/local/bin/kdx-agent
+install -m 0644 /opt/kdx-live-bundle/agent/systemd/kdx-agent.service /etc/systemd/system/kdx-agent.service
+
+if ls /opt/kdx-live-bundle/iso/vendor/hpe/rpms/*.rpm >/dev/null 2>&1; then
+  dnf install -y /opt/kdx-live-bundle/iso/vendor/hpe/rpms/*.rpm || true
+fi
+
+systemctl daemon-reload
+systemctl enable kdx-agent
+%end
+KS_EOF
 
 livemedia-creator \
   --make-iso \
   --no-virt \
-  --ks "${KS_FILE}" \
+  --ks "${GENERATED_KS}" \
   --resultdir "${BUILD_DIR}/result" \
   --project "KDX Live" \
   --releasever 9 \

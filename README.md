@@ -28,6 +28,7 @@ Phase-1 intentionally does not include BIOS configuration, firmware updates, or 
 - [Control Plane VM Runbook](docs/control-plane-vm-runbook.md)
 - [Agent And Live USB Plan](docs/agent-liveusb-plan.md)
 - [Golden Live ISO Design](docs/golden-live-iso-design.md)
+- [Live ISO Build Runbook](docs/live-iso-build-runbook.md)
 
 ## Quick Start
 
