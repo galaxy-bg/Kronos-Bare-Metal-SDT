@@ -8,7 +8,7 @@ network --bootproto=dhcp --device=link --activate
 rootpw --lock
 selinux --enforcing
 firewall --enabled
-services --enabled=NetworkManager,kdx-agent
+services --enabled=NetworkManager
 zerombr
 clearpart --all --initlabel
 part / --fstype=ext4 --size=6144
