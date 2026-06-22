@@ -90,6 +90,8 @@ The Live USB should be Rocky-based and include:
 - KDX agent script at `/usr/local/bin/kdx-agent`
 - KDX agent config at `/etc/kdx-agent/agent.env`
 - systemd unit `kdx-agent.service`
+- HPE iLOrest for local iLO bootstrap actions
+- HPE `ssacli` for Smart Array inventory and later RAID actions
 
 The USB boot flow should be:
 
@@ -111,6 +113,7 @@ For HPE:
 - Controller stores requested management profile: IP, subnet, gateway, DNS, NTP and VLAN.
 - Agent later polls for pending actions and runs the vendor-specific script locally.
 - Once the iLO IP is configured, the controller can move to Redfish-based lifecycle operations.
+- RAID operations through `ssacli` must be action-based and disabled by default in the first ISO.
 
 For Dell:
 
@@ -151,3 +154,5 @@ Initial payload:
   "vlan": "88"
 }
 ```
+
+See [KDX Golden Live ISO Design](golden-live-iso-design.md) for the ISO build direction.
