@@ -23,6 +23,7 @@ python3
 dracut-live
 syslinux-nonlinux
 rocky-logos
+memtest86+
 dmidecode
 iproute
 util-linux
