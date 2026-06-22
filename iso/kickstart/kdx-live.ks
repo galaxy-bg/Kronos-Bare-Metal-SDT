@@ -21,6 +21,7 @@ repo --name=appstream --baseurl=https://dl.rockylinux.org/pub/rocky/9/AppStream/
 NetworkManager
 python3
 dracut-live
+syslinux-nonlinux
 dmidecode
 iproute
 util-linux
