@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-/var/tmp/kdx-live-iso}"
 KS_FILE="${KS_FILE:-${ROOT_DIR}/iso/kickstart/kdx-live.ks}"
 ISO_NAME="${ISO_NAME:-kdx-live-rocky9.iso}"
+IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-6144}"
 GENERATED_DIR="${BUILD_DIR}/generated"
 BUNDLE_FILE="${GENERATED_DIR}/kdx-live-bundle.tgz"
 GENERATED_KS="${GENERATED_DIR}/kdx-live.generated.ks"
@@ -55,6 +56,7 @@ livemedia-creator \
   --make-iso \
   --no-virt \
   --ks "${GENERATED_KS}" \
+  --image-size "${IMAGE_SIZE_MB}" \
   --resultdir "${BUILD_DIR}/result" \
   --project "KDX Live" \
   --releasever 9 \
