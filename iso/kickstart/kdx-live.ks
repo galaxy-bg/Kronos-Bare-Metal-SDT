@@ -22,6 +22,7 @@ NetworkManager
 python3
 dracut-live
 syslinux-nonlinux
+rocky-logos
 dmidecode
 iproute
 util-linux
