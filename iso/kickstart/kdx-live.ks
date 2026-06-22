@@ -22,6 +22,11 @@ NetworkManager
 python3
 dracut-live
 syslinux-nonlinux
+shim-x64
+grub2-efi-x64
+grub2-efi-x64-cdboot
+efibootmgr
+dosfstools
 rocky-logos
 memtest86+
 dmidecode
