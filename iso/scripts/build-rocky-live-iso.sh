@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-/var/tmp/kdx-live-iso}"
 KS_FILE="${KS_FILE:-${ROOT_DIR}/iso/kickstart/kdx-live.ks}"
-KDX_PRODUCT_NAME="${KDX_PRODUCT_NAME:-KDX Server Deployment Toolkit v1.0}"
+KDX_PRODUCT_NAME="${KDX_PRODUCT_NAME:-KDX Server Deployment Toolkit}"
+KDX_PRODUCT_VERSION="${KDX_PRODUCT_VERSION:-v1.0}"
 ISO_NAME="${ISO_NAME:-kdx-server-deployment-toolkit-v1.0.iso}"
 LIVE_ROOTFS_SIZE_GB="${LIVE_ROOTFS_SIZE_GB:-6}"
 GENERATED_DIR="${BUILD_DIR}/generated"
@@ -47,7 +48,8 @@ install -m 0755 /opt/kdx-live-bundle/iso/scripts/kdx-live-debug.sh /usr/local/bi
 install -m 0644 /opt/kdx-live-bundle/agent/systemd/kdx-agent.service /etc/systemd/system/kdx-agent.service
 
 if ls /opt/kdx-live-bundle/iso/vendor/hpe/rpms/*.rpm >/dev/null 2>&1; then
-  dnf install -y /opt/kdx-live-bundle/iso/vendor/hpe/rpms/*.rpm || true
+  dnf install -y --disablerepo='*' /opt/kdx-live-bundle/iso/vendor/hpe/rpms/*.rpm || \
+    rpm -Uvh --nodeps /opt/kdx-live-bundle/iso/vendor/hpe/rpms/*.rpm || true
 fi
 
 systemctl daemon-reload
@@ -62,7 +64,7 @@ livemedia-creator \
   --live-rootfs-size "${LIVE_ROOTFS_SIZE_GB}" \
   --resultdir "${BUILD_DIR}/result" \
   --project "${KDX_PRODUCT_NAME}" \
-  --releasever 9 \
+  --releasever "${KDX_PRODUCT_VERSION}" \
   --volid "KDX-SDT-1-0" \
   --iso-only \
   --iso-name "${ISO_NAME}"
