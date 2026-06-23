@@ -18,6 +18,23 @@ class AgentHeartbeat(BaseModel):
     agent_ip: str | None = None
 
 
+class AgentActionPoll(BaseModel):
+    serial_number: str
+
+
+class AgentActionRead(BaseModel):
+    id: int
+    action_type: str
+    payload: dict[str, Any]
+
+
+class AgentActionComplete(BaseModel):
+    serial_number: str
+    status: str
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
+
 class InventoryUpload(BaseModel):
     serial_number: str
     inventory: dict[str, Any]

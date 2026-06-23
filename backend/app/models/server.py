@@ -30,3 +30,8 @@ class Server(Base):
         cascade="all, delete-orphan",
         order_by="desc(Inventory.created_at)",
     )
+    actions: Mapped[list["ServerAction"]] = relationship(
+        back_populates="server",
+        cascade="all, delete-orphan",
+        order_by="desc(ServerAction.requested_at)",
+    )

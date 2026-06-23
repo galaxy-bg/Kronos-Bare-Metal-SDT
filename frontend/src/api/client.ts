@@ -1,5 +1,14 @@
 import axios from 'axios';
-import type { BulkDeleteResult, DashboardStats, ServerDetail, ServerSummary, ServerUpdate } from '../types';
+import type {
+  BulkDeleteResult,
+  DashboardStats,
+  IloUserActionPayload,
+  ManagementConfig,
+  ServerAction,
+  ServerDetail,
+  ServerSummary,
+  ServerUpdate,
+} from '../types';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
@@ -22,6 +31,16 @@ export async function fetchServer(serverId: string): Promise<ServerDetail> {
 
 export async function updateServer(serverId: number, payload: ServerUpdate): Promise<ServerSummary> {
   const response = await api.patch<ServerSummary>(`/api/v1/servers/${serverId}`, payload);
+  return response.data;
+}
+
+export async function createIloUserAction(serverId: number, payload: IloUserActionPayload): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/${serverId}/actions/hpe-create-ilo-user`, payload);
+  return response.data;
+}
+
+export async function createIloNetworkAction(serverId: number, payload: ManagementConfig): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/${serverId}/actions/hpe-set-ilo-network`, payload);
   return response.data;
 }
 

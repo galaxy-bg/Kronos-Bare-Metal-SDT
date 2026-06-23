@@ -6,14 +6,29 @@ import json
 import os
 import socket
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
 
 DEFAULT_CONFIG = "/etc/kdx-agent/agent.env"
+INVALID_DMI_VALUES = {
+    "",
+    "0",
+    "none",
+    "null",
+    "not specified",
+    "not available",
+    "not applicable",
+    "unknown",
+    "system serial number",
+    "to be filled by o.e.m.",
+    "to be filled by oem",
+}
 
 
 def read_env_file(path: str) -> dict[str, str]:
@@ -55,18 +70,30 @@ def read_first(paths: list[str]) -> str | None:
             value = Path(path).read_text(encoding="utf-8").strip()
         except OSError:
             continue
-        if value:
+        if clean_dmi_value(value):
             return value
     return None
 
 
-def dmi_value(name: str, sysfs_name: str) -> str | None:
-    sysfs_value = read_first([f"/sys/class/dmi/id/{sysfs_name}"])
+def clean_dmi_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if cleaned.lower() in INVALID_DMI_VALUES:
+        return None
+    return cleaned
+
+
+def dmi_value(name: str, sysfs_names: str | list[str]) -> str | None:
+    if isinstance(sysfs_names, str):
+        sysfs_names = [sysfs_names]
+
+    sysfs_value = read_first([f"/sys/class/dmi/id/{sysfs_name}" for sysfs_name in sysfs_names])
     if sysfs_value:
         return sysfs_value
 
     dmidecode_value = run(["dmidecode", "-s", name])
-    return dmidecode_value or None
+    return clean_dmi_value(dmidecode_value)
 
 
 def get_agent_ip(interface: str | None) -> str | None:
@@ -194,7 +221,12 @@ def collect_inventory(config: dict[str, str]) -> dict[str, Any]:
     vendor = setting(config, "KDX_VENDOR") or dmi_value("system-manufacturer", "sys_vendor")
     model = setting(config, "KDX_MODEL") or dmi_value("system-product-name", "product_name")
     product_name = setting(config, "KDX_PRODUCT_NAME") or dmi_value("system-version", "product_version")
-    serial = setting(config, "KDX_SERIAL_NUMBER") or dmi_value("system-serial-number", "product_serial")
+    serial = (
+        setting(config, "KDX_SERIAL_NUMBER")
+        or dmi_value("system-serial-number", ["product_serial", "product_uuid"])
+        or dmi_value("baseboard-serial-number", "board_serial")
+        or dmi_value("chassis-serial-number", "chassis_serial")
+    )
 
     return {
         "system": {
@@ -229,6 +261,202 @@ def post_json(controller: str, path: str, payload: dict[str, Any]) -> dict[str, 
         raise RuntimeError(f"{url} failed with HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"{url} failed: {exc.reason}") from exc
+
+
+def post_json_optional(controller: str, path: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    url = f"{controller.rstrip('/')}{path}"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else None
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8")
+        raise RuntimeError(f"{url} failed with HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{url} failed: {exc.reason}") from exc
+
+
+def bool_setting(config: dict[str, str], key: str, default: bool) -> bool:
+    value = setting(config, key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def ribcl_root() -> tuple[ET.Element, ET.Element]:
+    root = ET.Element("RIBCL", {"VERSION": "2.0"})
+    login = ET.SubElement(root, "LOGIN", {"USER_LOGIN": "", "PASSWORD": ""})
+    return root, login
+
+
+def xml_bytes(root: ET.Element) -> bytes:
+    ET.indent(root, space="  ")
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def add_value(parent: ET.Element, tag: str, value: str | None) -> None:
+    if value:
+        ET.SubElement(parent, tag, {"VALUE": value})
+
+
+def build_hponcfg_create_user_xml(username: str, password: str) -> bytes:
+    root, login = ribcl_root()
+    user_info = ET.SubElement(login, "USER_INFO", {"MODE": "write"})
+    add_user = ET.SubElement(
+        user_info,
+        "ADD_USER",
+        {"USER_NAME": username, "USER_LOGIN": username, "PASSWORD": password},
+    )
+    for privilege in [
+        "ADMIN_PRIV",
+        "REMOTE_CONS_PRIV",
+        "RESET_SERVER_PRIV",
+        "VIRTUAL_MEDIA_PRIV",
+        "CONFIG_ILO_PRIV",
+    ]:
+        ET.SubElement(add_user, privilege, {"VALUE": "Y"})
+    return xml_bytes(root)
+
+
+def normalize_subnet_mask(value: str | None) -> str | None:
+    if not value:
+        return None
+    stripped = value.strip()
+    if not stripped.startswith("/"):
+        return stripped
+    try:
+        prefix = int(stripped[1:])
+    except ValueError:
+        return stripped
+    if prefix < 0 or prefix > 32:
+        return stripped
+    mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
+    return ".".join(str((mask >> shift) & 0xFF) for shift in (24, 16, 8, 0))
+
+
+def build_hponcfg_network_xml(management: dict[str, Any]) -> bytes:
+    root, login = ribcl_root()
+    rib_info = ET.SubElement(login, "RIB_INFO", {"MODE": "write"})
+    network = ET.SubElement(rib_info, "MOD_NETWORK_SETTINGS")
+    ET.SubElement(network, "DHCP_ENABLE", {"VALUE": "N"})
+    add_value(network, "IP_ADDRESS", string_value(management.get("ip")))
+    add_value(network, "SUBNET_MASK", normalize_subnet_mask(string_value(management.get("subnet"))))
+    add_value(network, "GATEWAY_IP_ADDRESS", string_value(management.get("gateway")))
+
+    dns = string_value(management.get("dns"))
+    if dns:
+        dns_servers = [server.strip() for server in dns.split(",") if server.strip()]
+        if dns_servers:
+            add_value(network, "PRIM_DNS_SERVER", dns_servers[0])
+        if len(dns_servers) > 1:
+            add_value(network, "SEC_DNS_SERVER", dns_servers[1])
+
+    vlan = string_value(management.get("vlan"))
+    if vlan:
+        ET.SubElement(network, "VLAN_ENABLED", {"VALUE": "Y"})
+        ET.SubElement(network, "VLAN_ID", {"VALUE": vlan})
+
+    ntp = string_value(management.get("ntp"))
+    if ntp:
+        sntp = ET.SubElement(rib_info, "MOD_SNTP_SETTINGS")
+        add_value(sntp, "SNTP_SERVER1", ntp.split(",")[0].strip())
+
+    return xml_bytes(root)
+
+
+def string_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped or None
+
+
+def run_hponcfg(xml_content: bytes) -> dict[str, Any]:
+    hponcfg_path = next((path for path in ["/sbin/hponcfg", "/usr/sbin/hponcfg", "/usr/bin/hponcfg"] if Path(path).exists()), None)
+    if hponcfg_path is None:
+        raise RuntimeError("hponcfg is not installed")
+
+    with tempfile.NamedTemporaryFile(prefix="kdx-hponcfg-", suffix=".xml", delete=False) as handle:
+        handle.write(xml_content)
+        xml_path = handle.name
+
+    try:
+        result = subprocess.run(
+            [hponcfg_path, "-f", xml_path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    finally:
+        try:
+            Path(xml_path).unlink()
+        except OSError:
+            pass
+
+    output = (result.stdout + "\n" + result.stderr).strip()
+    if result.returncode != 0:
+        raise RuntimeError(output or f"hponcfg failed with exit code {result.returncode}")
+    return {"command": f"{hponcfg_path} -f <generated.xml>", "output": output}
+
+
+def execute_action(action: dict[str, Any], config: dict[str, str]) -> dict[str, Any]:
+    if not bool_setting(config, "KDX_ENABLE_HPE_ACTIONS", True):
+        raise RuntimeError("HPE actions are disabled by KDX_ENABLE_HPE_ACTIONS")
+
+    action_type = action.get("action_type")
+    payload = action.get("payload") or {}
+
+    if action_type == "hpe_create_ilo_user":
+        username = string_value(payload.get("username"))
+        password = string_value(payload.get("password"))
+        if not username or not password:
+            raise RuntimeError("username and password are required")
+        result = run_hponcfg(build_hponcfg_create_user_xml(username, password))
+        return {**result, "username": username}
+
+    if action_type == "hpe_set_ilo_network":
+        management = payload.get("management") or {}
+        if not isinstance(management, dict):
+            raise RuntimeError("management payload is invalid")
+        if not string_value(management.get("ip")):
+            raise RuntimeError("management.ip is required")
+        result = run_hponcfg(build_hponcfg_network_xml(management))
+        return {**result, "management": {key: value for key, value in management.items() if key != "password"}}
+
+    raise RuntimeError(f"Unsupported action type: {action_type}")
+
+
+def poll_and_execute_actions(controller: str, serial: str, config: dict[str, str], max_actions: int = 3) -> None:
+    for _ in range(max_actions):
+        action = post_json_optional(controller, "/api/v1/agents/actions/next", {"serial_number": serial})
+        if not action:
+            return
+
+        action_id = action.get("id")
+        action_type = action.get("action_type")
+        print(f"Executing action {action_id}: {action_type}")
+        try:
+            result = execute_action(action, config)
+            post_json(
+                controller,
+                f"/api/v1/agents/actions/{action_id}/complete",
+                {"serial_number": serial, "status": "succeeded", "result": result},
+            )
+            print(f"action {action_id} succeeded")
+        except Exception as exc:
+            post_json(
+                controller,
+                f"/api/v1/agents/actions/{action_id}/complete",
+                {"serial_number": serial, "status": "failed", "error": str(exc)},
+            )
+            print(f"action {action_id} failed: {exc}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -273,6 +501,7 @@ def main() -> int:
 
     print("Uploading inventory")
     print(json.dumps(post_json(controller, "/api/v1/agents/inventory", {"serial_number": serial, "inventory": inventory}), indent=2))
+    poll_and_execute_actions(controller, serial, config)
 
     if args.once:
         print("One-shot mode complete")
@@ -283,6 +512,7 @@ def main() -> int:
         payload = {"serial_number": serial, "agent_ip": get_agent_ip(interface)}
         result = post_json(controller, "/api/v1/agents/heartbeat", payload)
         print(f"heartbeat ok: {result.get('serial_number', serial)}")
+        poll_and_execute_actions(controller, serial, config)
         time.sleep(interval)
 
 

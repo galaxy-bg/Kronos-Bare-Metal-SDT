@@ -7,6 +7,24 @@ export type ManagementConfig = {
   vlan?: string | null;
 };
 
+export type IloUserActionPayload = {
+  username: string;
+  password: string;
+};
+
+export type ServerAction = {
+  id: number;
+  server_id: number;
+  action_type: string;
+  status: string;
+  payload_json: Record<string, unknown>;
+  result_json: Record<string, unknown> | null;
+  error_message: string | null;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
 export type DashboardStats = {
   total_servers: number;
   online_servers: number;

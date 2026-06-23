@@ -82,7 +82,19 @@ The build script embeds:
 - `agent/kdx-agent.py`
 - `agent/systemd/kdx-agent.service`
 - `agent/config/agent.env.example`
+- `iso/scripts/kdx-live-debug.sh`
 - downloaded HPE RPMs under `iso/vendor/hpe/rpms/`
+
+## Temporary Lab Access
+
+During bare-metal development, the Live ISO enables local and SSH root login:
+
+```text
+user: root
+password: HP1nv3nt
+```
+
+This is for isolated lab testing only. Remove or lock root access again before using the image outside the lab.
 
 ## Write ISO To USB From macOS
 
@@ -131,6 +143,10 @@ If the server does not appear:
 - Check whether the server booted from USB.
 - Check whether the control plane is reachable from another host on VLAN 88.
 - Temporarily test the same USB in a VM with bridged networking.
+- Log in as `root` and run `kdx-live-debug`.
+- Check the agent service with `systemctl status kdx-agent`.
+- Check agent logs with `journalctl -u kdx-agent -f`.
+- Run a one-shot registration manually with `kdx-agent --config /etc/kdx-agent/agent.env --once`.
 
 If the ISO build fails:
 
@@ -154,4 +170,3 @@ user: hpadmin
 password: ChangeMe
 role: Administrator
 ```
-

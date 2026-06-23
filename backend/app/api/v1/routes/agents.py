@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.inventory import Inventory
 from app.models.server import Server
-from app.schemas.agent import AgentHeartbeat, AgentRegistration, InventoryUpload
+from app.models.server_action import ServerAction
+from app.schemas.agent import AgentActionComplete, AgentActionPoll, AgentActionRead, AgentHeartbeat, AgentRegistration, InventoryUpload
 from app.schemas.server import ServerRead
 
 router = APIRouter()
@@ -87,3 +88,55 @@ def upload_inventory(payload: InventoryUpload, db: Session = Depends(get_db)) ->
     db.commit()
     db.refresh(inventory)
     return {"status": "stored", "inventory_id": inventory.id}
+
+
+@router.post("/actions/next", response_model=AgentActionRead | None)
+def next_action(payload: AgentActionPoll, db: Session = Depends(get_db)) -> dict | None:
+    server = db.scalar(select(Server).where(Server.serial_number == payload.serial_number))
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server is not registered")
+
+    action = db.scalar(
+        select(ServerAction)
+        .where(ServerAction.server_id == server.id, ServerAction.status == "pending")
+        .order_by(ServerAction.requested_at, ServerAction.id)
+        .limit(1)
+    )
+    if action is None:
+        return None
+
+    action.status = "running"
+    action.started_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(action)
+    return {"id": action.id, "action_type": action.action_type, "payload": action.payload_json}
+
+
+@router.post("/actions/{action_id}/complete")
+def complete_action(action_id: int, payload: AgentActionComplete, db: Session = Depends(get_db)) -> dict[str, str]:
+    server = db.scalar(select(Server).where(Server.serial_number == payload.serial_number))
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server is not registered")
+
+    action = db.scalar(select(ServerAction).where(ServerAction.id == action_id, ServerAction.server_id == server.id))
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
+
+    if payload.status not in {"succeeded", "failed"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action status")
+
+    action.status = payload.status
+    action.result_json = payload.result
+    action.error_message = payload.error
+    action.completed_at = datetime.now(UTC)
+
+    if action.action_type == "hpe_set_ilo_network" and payload.status == "succeeded":
+        management = action.payload_json.get("management", {})
+        if isinstance(management, dict):
+            ip = management.get("ip")
+            if ip:
+                server.bmc_ip = str(ip)
+            server.management_config_json = management
+
+    db.commit()
+    return {"status": "stored"}

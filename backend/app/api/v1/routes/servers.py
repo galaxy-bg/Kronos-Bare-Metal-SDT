@@ -8,7 +8,9 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
+from app.models.server_action import ServerAction
 from app.models.server import Server
+from app.schemas.action import IloNetworkActionRequest, IloUserActionRequest, ServerActionRead
 from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ServerDetail, ServerRead, ServerUpdate
 
 router = APIRouter()
@@ -124,6 +126,75 @@ def update_server(server_id: int, payload: ServerUpdate, db: Session = Depends(g
     db.commit()
     db.refresh(server)
     return server_to_read(server)
+
+
+def mask_action_payload(action_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if action_type != "hpe_create_ilo_user":
+        return payload
+    masked = dict(payload)
+    if "password" in masked:
+        masked["password"] = "********"
+    return masked
+
+
+def action_to_read(action: ServerAction) -> dict[str, Any]:
+    return {
+        "id": action.id,
+        "server_id": action.server_id,
+        "action_type": action.action_type,
+        "status": action.status,
+        "payload_json": mask_action_payload(action.action_type, action.payload_json),
+        "result_json": action.result_json,
+        "error_message": action.error_message,
+        "requested_at": action.requested_at,
+        "started_at": action.started_at,
+        "completed_at": action.completed_at,
+    }
+
+
+@router.post("/{server_id}/actions/hpe-create-ilo-user", response_model=ServerActionRead, status_code=status.HTTP_201_CREATED)
+def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    action = ServerAction(
+        server_id=server.id,
+        action_type="hpe_create_ilo_user",
+        payload_json={"username": payload.username, "password": payload.password},
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
+
+
+@router.post("/{server_id}/actions/hpe-set-ilo-network", response_model=ServerActionRead, status_code=status.HTTP_201_CREATED)
+def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    management_config = {
+        "ip": payload.ip,
+        "subnet": payload.subnet,
+        "gateway": payload.gateway,
+        "dns": payload.dns,
+        "ntp": payload.ntp,
+        "vlan": payload.vlan,
+    }
+    action = ServerAction(
+        server_id=server.id,
+        action_type="hpe_set_ilo_network",
+        payload_json={"management": management_config},
+    )
+    server.bmc_ip = payload.ip
+    server.management_config_json = management_config
+
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
 
 
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)

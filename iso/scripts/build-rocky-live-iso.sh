@@ -23,6 +23,7 @@ tar -czf "${BUNDLE_FILE}" \
   agent/kdx-agent.py \
   agent/systemd/kdx-agent.service \
   agent/config/agent.env.example \
+  iso/scripts/kdx-live-debug.sh \
   iso/vendor/hpe/rpms
 
 cp "${KS_FILE}" "${GENERATED_KS}"
@@ -41,6 +42,7 @@ KDX_BUNDLE_EOF
 
 tar -xzf /root/kdx-live-bundle.tgz -C /opt/kdx-live-bundle
 install -m 0755 /opt/kdx-live-bundle/agent/kdx-agent.py /usr/local/bin/kdx-agent
+install -m 0755 /opt/kdx-live-bundle/iso/scripts/kdx-live-debug.sh /usr/local/bin/kdx-live-debug
 install -m 0644 /opt/kdx-live-bundle/agent/systemd/kdx-agent.service /etc/systemd/system/kdx-agent.service
 
 if ls /opt/kdx-live-bundle/iso/vendor/hpe/rpms/*.rpm >/dev/null 2>&1; then

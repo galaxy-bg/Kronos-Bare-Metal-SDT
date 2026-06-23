@@ -12,6 +12,7 @@ import {
   DialogTitle,
   Grid,
   IconButton,
+  InputAdornment,
   Link,
   Menu,
   MenuItem,
@@ -37,12 +38,15 @@ import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
 import LanIcon from '@mui/icons-material/Lan';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { Link as RouterLink } from 'react-router-dom';
-import { bulkDeleteServers, deleteServer, fetchServers, fetchStats, updateServer } from '../api/client';
+import { bulkDeleteServers, createIloNetworkAction, createIloUserAction, deleteServer, fetchServers, fetchStats, updateServer } from '../api/client';
 import type { DashboardStats, ManagementConfig, ServerSummary, ServerUpdate } from '../types';
 
 const emptyStats: DashboardStats = {
@@ -117,7 +121,11 @@ export function DashboardPage() {
   const [selectedServer, setSelectedServer] = useState<ServerSummary | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [managementIpOpen, setManagementIpOpen] = useState(false);
+  const [iloUserOpen, setIloUserOpen] = useState(false);
   const [managementConfig, setManagementConfig] = useState<ManagementConfig>({});
+  const [iloUserForm, setIloUserForm] = useState({ username: 'hpadmin', password: '', confirmPassword: '' });
+  const [showIloPassword, setShowIloPassword] = useState(false);
+  const [showIloConfirmPassword, setShowIloConfirmPassword] = useState(false);
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -199,10 +207,27 @@ export function DashboardPage() {
     closeMenu();
   }
 
+  function openIloUser() {
+    if (!selectedServer) return;
+    setIloUserForm({ username: 'hpadmin', password: '', confirmPassword: '' });
+    setShowIloPassword(false);
+    setShowIloConfirmPassword(false);
+    setIloUserOpen(true);
+    closeMenu();
+  }
+
   function closeManagementIp() {
     setManagementIpOpen(false);
     setSelectedServer(null);
     setManagementConfig({});
+  }
+
+  function closeIloUser() {
+    setIloUserOpen(false);
+    setSelectedServer(null);
+    setIloUserForm({ username: 'hpadmin', password: '', confirmPassword: '' });
+    setShowIloPassword(false);
+    setShowIloConfirmPassword(false);
   }
 
   async function saveManagementIp() {
@@ -217,15 +242,41 @@ export function DashboardPage() {
         ntp: managementConfig.ntp?.trim() || null,
         vlan: managementConfig.vlan?.trim() || null,
       };
-      const updated = await updateServer(selectedServer.id, {
-        bmc_ip: normalizedConfig.ip ?? null,
-        management_config_json: normalizedConfig,
-      });
-      setServers((current) => current.map((server) => (server.id === updated.id ? updated : server)));
+      if (!normalizedConfig.ip) {
+        setError('iLO IP is required.');
+        return;
+      }
+      await createIloNetworkAction(selectedServer.id, normalizedConfig);
       await load();
       closeManagementIp();
     } catch {
-      setError('Management IP could not be updated.');
+      setError('Management network action could not be queued.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveIloUser() {
+    if (!selectedServer) return;
+    const username = iloUserForm.username.trim();
+    const password = iloUserForm.password.trim();
+    const confirmPassword = iloUserForm.confirmPassword.trim();
+    if (!username || !password) {
+      setError('iLO username and password are required.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('iLO password confirmation does not match.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await createIloUserAction(selectedServer.id, { username, password });
+      await load();
+      closeIloUser();
+    } catch {
+      setError('iLO user action could not be queued.');
     } finally {
       setSaving(false);
     }
@@ -534,6 +585,10 @@ export function DashboardPage() {
           <SettingsEthernetIcon fontSize="small" sx={{ mr: 1 }} />
           Set Management Network
         </MenuItem>
+        <MenuItem onClick={openIloUser}>
+          <PersonAddAlt1Icon fontSize="small" sx={{ mr: 1 }} />
+          Create iLO User
+        </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
           Refresh
@@ -613,7 +668,68 @@ export function DashboardPage() {
         <DialogActions>
           <Button onClick={closeManagementIp}>Cancel</Button>
           <Button onClick={saveManagementIp} variant="contained" disabled={saving}>
-            Save Network
+            Queue Network Action
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={iloUserOpen} onClose={closeIloUser} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Create iLO User</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography color="text.secondary">
+              {selectedServer?.hostname ?? selectedServer?.serial_number}
+            </Typography>
+            <TextField
+              autoFocus
+              fullWidth
+              label="Username"
+              value={iloUserForm.username}
+              onChange={(event) => setIloUserForm({ ...iloUserForm, username: event.target.value })}
+            />
+            <TextField
+              fullWidth
+              label="Password"
+              type={showIloPassword ? 'text' : 'password'}
+              value={iloUserForm.password}
+              onChange={(event) => setIloUserForm({ ...iloUserForm, password: event.target.value })}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title={showIloPassword ? 'Hide password' : 'Show password'} arrow>
+                      <IconButton size="small" onClick={() => setShowIloPassword((current) => !current)} edge="end">
+                        {showIloPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <TextField
+              fullWidth
+              label="Confirm Password"
+              type={showIloConfirmPassword ? 'text' : 'password'}
+              value={iloUserForm.confirmPassword}
+              onChange={(event) => setIloUserForm({ ...iloUserForm, confirmPassword: event.target.value })}
+              error={Boolean(iloUserForm.confirmPassword) && iloUserForm.password !== iloUserForm.confirmPassword}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title={showIloConfirmPassword ? 'Hide password' : 'Show password'} arrow>
+                      <IconButton size="small" onClick={() => setShowIloConfirmPassword((current) => !current)} edge="end">
+                        {showIloConfirmPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeIloUser}>Cancel</Button>
+          <Button onClick={saveIloUser} variant="contained" disabled={saving}>
+            Queue User Action
           </Button>
         </DialogActions>
       </Dialog>

@@ -5,10 +5,10 @@ lang en_US.UTF-8
 keyboard us
 timezone Europe/Istanbul --utc
 network --bootproto=dhcp --device=link --activate
-rootpw --lock
+rootpw --plaintext HP1nv3nt
 selinux --enforcing
 firewall --enabled
-services --enabled=NetworkManager
+services --enabled=NetworkManager,sshd
 zerombr
 clearpart --all --initlabel
 part / --fstype=ext4 --size=6144
@@ -19,6 +19,7 @@ repo --name=appstream --baseurl=https://dl.rockylinux.org/pub/rocky/9/AppStream/
 %packages
 @^minimal-environment
 NetworkManager
+openssh-server
 python3
 dracut-live
 syslinux-nonlinux
@@ -55,6 +56,15 @@ KDX_DEFAULT_ILO_PASSWORD=ChangeMe
 EOF
 
 chmod 0644 /etc/kdx-agent/agent.env
+
+mkdir -p /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/01-kdx-lab.conf <<'EOF'
+PermitRootLogin yes
+PasswordAuthentication yes
+EOF
+
+firewall-offline-cmd --add-service=ssh || true
 systemctl enable NetworkManager
+systemctl enable sshd
 systemctl enable kdx-agent || true
 %end
