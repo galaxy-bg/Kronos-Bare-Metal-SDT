@@ -8,6 +8,7 @@ KDX_PRODUCT_NAME="${KDX_PRODUCT_NAME:-KDX Server Deployment Toolkit}"
 KDX_PRODUCT_VERSION="${KDX_PRODUCT_VERSION:-v1.0}"
 ISO_NAME="${ISO_NAME:-kdx-server-deployment-toolkit-v1.0.iso}"
 LIVE_ROOTFS_SIZE_GB="${LIVE_ROOTFS_SIZE_GB:-6}"
+LORAX_TEMPLATES="${LORAX_TEMPLATES:-${ROOT_DIR}/iso/lorax-templates}"
 GENERATED_DIR="${BUILD_DIR}/generated"
 BUNDLE_FILE="${GENERATED_DIR}/kdx-live-bundle.tgz"
 GENERATED_KS="${GENERATED_DIR}/kdx-live.generated.ks"
@@ -57,10 +58,16 @@ systemctl enable kdx-agent
 %end
 KS_EOF
 
+LORAX_TEMPLATE_ARGS=()
+if [[ -d "${LORAX_TEMPLATES}" ]]; then
+  LORAX_TEMPLATE_ARGS=(--lorax-templates "${LORAX_TEMPLATES}")
+fi
+
 livemedia-creator \
   --make-iso \
   --no-virt \
   --ks "${GENERATED_KS}" \
+  "${LORAX_TEMPLATE_ARGS[@]}" \
   --live-rootfs-size "${LIVE_ROOTFS_SIZE_GB}" \
   --resultdir "${BUILD_DIR}/result" \
   --project "${KDX_PRODUCT_NAME}" \
