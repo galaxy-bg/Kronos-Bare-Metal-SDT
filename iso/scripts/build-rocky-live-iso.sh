@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-/var/tmp/kdx-live-iso}"
 KS_FILE="${KS_FILE:-${ROOT_DIR}/iso/kickstart/kdx-live.ks}"
-ISO_NAME="${ISO_NAME:-kdx-live-rocky9.iso}"
+KDX_PRODUCT_NAME="${KDX_PRODUCT_NAME:-KDX Server Deployment Toolkit v1.0}"
+ISO_NAME="${ISO_NAME:-kdx-server-deployment-toolkit-v1.0.iso}"
 LIVE_ROOTFS_SIZE_GB="${LIVE_ROOTFS_SIZE_GB:-6}"
 GENERATED_DIR="${BUILD_DIR}/generated"
 BUNDLE_FILE="${GENERATED_DIR}/kdx-live-bundle.tgz"
@@ -60,9 +61,9 @@ livemedia-creator \
   --ks "${GENERATED_KS}" \
   --live-rootfs-size "${LIVE_ROOTFS_SIZE_GB}" \
   --resultdir "${BUILD_DIR}/result" \
-  --project "KDX Live" \
+  --project "${KDX_PRODUCT_NAME}" \
   --releasever 9 \
-  --volid "KDX-LIVE" \
+  --volid "KDX-SDT-1-0" \
   --iso-only \
   --iso-name "${ISO_NAME}"
 
