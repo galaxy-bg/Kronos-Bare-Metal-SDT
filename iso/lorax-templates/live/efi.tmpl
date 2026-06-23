@@ -49,7 +49,7 @@ ${make_efiboot("images/efiboot.img")}
     %else:
         replace @ROOT@ 'root=live:CDLABEL=${isolabel|udev}' ${eficonf}
     %endif
-    runcmd sed -i -e 's/^set default=.*/set default="0"/' -e 's/^set gfxpayload=.*/set gfxpayload=text/' -e 's/ rd.live.image quiet/ rd.live.image nomodeset/' -e 's/ rd.live.check quiet/ rd.live.check nomodeset/' ${outroot}/${eficonf}
+    runcmd sed -i -e 's/^set default=.*/set default="0"/' -e 's/^set timeout=.*/set timeout=5/' -e 's/^set gfxpayload=.*/set gfxpayload=text/' -e 's/ rd.live.image quiet/ rd.live.image nomodeset loglevel=1/' -e 's/ rd.live.check quiet/ rd.live.check nomodeset loglevel=1/' ${outroot}/${eficonf}
     %if efiarch32 == 'IA32':
         copy ${eficonf} ${EFIBOOTDIR}/BOOT.conf
     %endif

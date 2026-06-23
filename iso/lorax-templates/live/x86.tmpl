@@ -43,7 +43,7 @@ replace @VERSION@ ${product.version} ${BOOTDIR}/grub.conf ${BOOTDIR}/isolinux.cf
 replace @PRODUCT@ '${product.name}'  ${BOOTDIR}/grub.conf ${BOOTDIR}/isolinux.cfg ${BOOTDIR}/*.msg
 replace @ROOT@ 'root=live:CDLABEL=${isolabel|udev}' ${BOOTDIR}/isolinux.cfg
 replace @EXTRA@ '${extra_boot_args}' ${BOOTDIR}/isolinux.cfg
-runcmd sed -i -e 's/^default=1/default=0/' -e 's/ rd.live.image quiet/ rd.live.image nomodeset/' -e 's/ rd.live.check quiet/ rd.live.check nomodeset/' ${outroot}/${BOOTDIR}/grub.conf ${outroot}/${BOOTDIR}/isolinux.cfg
+runcmd sed -i -e 's/^default=1/default=0/' -e 's/^timeout 60/timeout 5/' -e 's/^timeout 600/timeout 50/' -e 's/ rd.live.image quiet/ rd.live.image nomodeset loglevel=1/' -e 's/ rd.live.check quiet/ rd.live.check nomodeset loglevel=1/' ${outroot}/${BOOTDIR}/grub.conf ${outroot}/${BOOTDIR}/isolinux.cfg
 
 mkdir ${KERNELDIR}
 %for kernel in kernels:
