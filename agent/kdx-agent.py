@@ -16,6 +16,18 @@ from xml.etree import ElementTree as ET
 
 
 DEFAULT_CONFIG = "/etc/kdx-agent/agent.env"
+HPE_TOOL_CANDIDATES = {
+    "hponcfg": ["/usr/local/bin/hponcfg", "/sbin/hponcfg", "/usr/sbin/hponcfg", "/usr/bin/hponcfg"],
+    "ilorest": ["/usr/local/bin/ilorest", "/usr/sbin/ilorest", "/usr/bin/ilorest", "/opt/ilorest/ilorest"],
+    "ssacli": [
+        "/usr/local/bin/ssacli",
+        "/usr/sbin/ssacli",
+        "/usr/bin/ssacli",
+        "/opt/smartstorageadmin/ssacli/bin/ssacli",
+        "/opt/smartstorageadmin/ssacli/ssacli",
+    ],
+    "hpasmcli": ["/usr/local/bin/hpasmcli", "/sbin/hpasmcli", "/usr/sbin/hpasmcli", "/usr/bin/hpasmcli"],
+}
 INVALID_DMI_VALUES = {
     "",
     "0",
@@ -205,15 +217,137 @@ def collect_network() -> list[dict[str, Any]]:
     return interfaces
 
 
-def detect_bmc(config: dict[str, str]) -> dict[str, Any]:
+def is_hpe_vendor(vendor: str | None) -> bool:
+    if not vendor:
+        return False
+    normalized = vendor.strip().lower()
+    return normalized in {"hpe", "hewlett packard enterprise", "hewlett-packard", "hp"} or "hewlett" in normalized
+
+
+def first_existing_path(paths: list[str]) -> str | None:
+    return next((path for path in paths if Path(path).exists()), None)
+
+
+def link_hpe_tools(system_vendor: str | None, config: dict[str, str]) -> dict[str, Any]:
+    if not is_hpe_vendor(system_vendor):
+        return {"enabled": False, "reason": "non-hpe-vendor"}
+    if not bool_setting(config, "KDX_LINK_HPE_TOOLS", True):
+        return {"enabled": False, "reason": "disabled"}
+
+    link_dir = Path(setting(config, "KDX_HPE_TOOL_LINK_DIR", "/usr/local/bin") or "/usr/local/bin")
+    tools: dict[str, Any] = {}
+    try:
+        link_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return {"enabled": True, "error": f"cannot create {link_dir}: {exc}", "tools": tools}
+
+    for tool_name, candidates in HPE_TOOL_CANDIDATES.items():
+        source = first_existing_path(candidates)
+        if source is None:
+            tools[tool_name] = {"available": False, "linked": False}
+            continue
+
+        link_path = link_dir / tool_name
+        tool_status: dict[str, Any] = {"available": True, "path": source, "link": str(link_path), "linked": False}
+        try:
+            if link_path.exists() or link_path.is_symlink():
+                if link_path.is_symlink() and str(link_path.resolve()) == str(Path(source).resolve()):
+                    tool_status["linked"] = True
+                elif link_path.resolve() == Path(source).resolve():
+                    tool_status["linked"] = True
+                    tool_status["link"] = str(link_path)
+                else:
+                    tool_status["error"] = f"{link_path} already exists"
+            else:
+                link_path.symlink_to(source)
+                tool_status["linked"] = True
+        except OSError as exc:
+            tool_status["error"] = str(exc)
+        tools[tool_name] = tool_status
+
+    return {"enabled": True, "reason": "hpe-vendor", "tools": tools}
+
+
+def hponcfg_path() -> str | None:
+    return first_existing_path(HPE_TOOL_CANDIDATES["hponcfg"])
+
+
+def parse_hponcfg_value(root: ET.Element, *tags: str) -> str | None:
+    wanted = {tag.lower() for tag in tags}
+    for element in root.iter():
+        if element.tag.lower() not in wanted:
+            continue
+        value = element.attrib.get("VALUE") or element.text
+        cleaned = string_value(value)
+        if cleaned:
+            return cleaned
+    return None
+
+
+def discover_hpe_bmc_with_hponcfg() -> dict[str, Any]:
+    executable = hponcfg_path()
+    if executable is None:
+        return {"detected_by": "hponcfg-missing"}
+
+    with tempfile.NamedTemporaryFile(prefix="kdx-hponcfg-read-", suffix=".xml", delete=False) as handle:
+        xml_path = handle.name
+
+    try:
+        result = subprocess.run(
+            [executable, "-w", xml_path],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode != 0:
+            output = (result.stdout + "\n" + result.stderr).strip()
+            return {"detected_by": "hponcfg-read-failed", "error": output or f"hponcfg exited {result.returncode}"}
+
+        try:
+            root = ET.parse(xml_path).getroot()
+        except (ET.ParseError, OSError) as exc:
+            return {"detected_by": "hponcfg-parse-failed", "error": str(exc)}
+
+        return {
+            "vendor": "HPE",
+            "type": "iLO",
+            "ip": parse_hponcfg_value(root, "IP_ADDRESS"),
+            "subnet": parse_hponcfg_value(root, "SUBNET_MASK"),
+            "gateway": parse_hponcfg_value(root, "GATEWAY_IP_ADDRESS"),
+            "dns": parse_hponcfg_value(root, "PRIM_DNS_SERVER", "DNS_SERVER1"),
+            "vlan": parse_hponcfg_value(root, "VLAN_ID") or "0",
+            "detected_by": "hponcfg",
+        }
+    finally:
+        try:
+            Path(xml_path).unlink()
+        except OSError:
+            pass
+
+
+def detect_bmc(config: dict[str, str], system_vendor: str | None) -> dict[str, Any]:
     bmc_ip = setting(config, "KDX_BMC_IP")
-    bmc_type = setting(config, "KDX_BMC_TYPE", "iLO")
-    bmc_vendor = setting(config, "KDX_BMC_VENDOR", "HPE")
+    bmc_type = setting(config, "KDX_BMC_TYPE", "iLO" if is_hpe_vendor(system_vendor) else None)
+    bmc_vendor = setting(config, "KDX_BMC_VENDOR") or ("HPE" if is_hpe_vendor(system_vendor) else None)
+    if bmc_ip:
+        return {
+            "vendor": bmc_vendor,
+            "type": bmc_type,
+            "ip": bmc_ip,
+            "detected_by": "predefined",
+        }
+
+    if is_hpe_vendor(system_vendor) and bool_setting(config, "KDX_DISCOVER_HPE_BMC", True):
+        discovered = discover_hpe_bmc_with_hponcfg()
+        if discovered.get("ip"):
+            return discovered
+
     return {
         "vendor": bmc_vendor,
         "type": bmc_type,
-        "ip": bmc_ip,
-        "detected_by": "predefined" if bmc_ip else "pending-management-network-config",
+        "ip": None,
+        "detected_by": "pending-management-network-config",
     }
 
 
@@ -228,6 +362,8 @@ def collect_inventory(config: dict[str, str]) -> dict[str, Any]:
         or dmi_value("chassis-serial-number", "chassis_serial")
     )
 
+    hpe_tools = link_hpe_tools(vendor, config)
+
     return {
         "system": {
             "vendor": vendor,
@@ -240,7 +376,10 @@ def collect_inventory(config: dict[str, str]) -> dict[str, Any]:
         "memory": collect_memory(),
         "storage": collect_storage(),
         "network": collect_network(),
-        "bmc": detect_bmc(config),
+        "bmc": detect_bmc(config, vendor),
+        "tools": {
+            "hpe": hpe_tools,
+        },
     }
 
 
@@ -378,8 +517,8 @@ def string_value(value: Any) -> str | None:
 
 
 def run_hponcfg(xml_content: bytes) -> dict[str, Any]:
-    hponcfg_path = next((path for path in ["/sbin/hponcfg", "/usr/sbin/hponcfg", "/usr/bin/hponcfg"] if Path(path).exists()), None)
-    if hponcfg_path is None:
+    executable = hponcfg_path()
+    if executable is None:
         raise RuntimeError("hponcfg is not installed")
 
     with tempfile.NamedTemporaryFile(prefix="kdx-hponcfg-", suffix=".xml", delete=False) as handle:
@@ -388,7 +527,7 @@ def run_hponcfg(xml_content: bytes) -> dict[str, Any]:
 
     try:
         result = subprocess.run(
-            [hponcfg_path, "-f", xml_path],
+            [executable, "-f", xml_path],
             capture_output=True,
             text=True,
             timeout=60,
@@ -403,12 +542,14 @@ def run_hponcfg(xml_content: bytes) -> dict[str, Any]:
     output = (result.stdout + "\n" + result.stderr).strip()
     if result.returncode != 0:
         raise RuntimeError(output or f"hponcfg failed with exit code {result.returncode}")
-    return {"command": f"{hponcfg_path} -f <generated.xml>", "output": output}
+    return {"command": f"{executable} -f <generated.xml>", "output": output}
 
 
-def execute_action(action: dict[str, Any], config: dict[str, str]) -> dict[str, Any]:
+def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor: str | None) -> dict[str, Any]:
     if not bool_setting(config, "KDX_ENABLE_HPE_ACTIONS", True):
         raise RuntimeError("HPE actions are disabled by KDX_ENABLE_HPE_ACTIONS")
+    if not is_hpe_vendor(system_vendor):
+        raise RuntimeError(f"HPE actions are not allowed for vendor: {system_vendor or 'unknown'}")
 
     action_type = action.get("action_type")
     payload = action.get("payload") or {}
@@ -433,7 +574,7 @@ def execute_action(action: dict[str, Any], config: dict[str, str]) -> dict[str, 
     raise RuntimeError(f"Unsupported action type: {action_type}")
 
 
-def poll_and_execute_actions(controller: str, serial: str, config: dict[str, str], max_actions: int = 3) -> None:
+def poll_and_execute_actions(controller: str, serial: str, config: dict[str, str], system_vendor: str | None, max_actions: int = 3) -> None:
     for _ in range(max_actions):
         action = post_json_optional(controller, "/api/v1/agents/actions/next", {"serial_number": serial})
         if not action:
@@ -443,7 +584,7 @@ def poll_and_execute_actions(controller: str, serial: str, config: dict[str, str
         action_type = action.get("action_type")
         print(f"Executing action {action_id}: {action_type}")
         try:
-            result = execute_action(action, config)
+            result = execute_action(action, config, system_vendor)
             post_json(
                 controller,
                 f"/api/v1/agents/actions/{action_id}/complete",
@@ -501,7 +642,7 @@ def main() -> int:
 
     print("Uploading inventory")
     print(json.dumps(post_json(controller, "/api/v1/agents/inventory", {"serial_number": serial, "inventory": inventory}), indent=2))
-    poll_and_execute_actions(controller, serial, config)
+    poll_and_execute_actions(controller, serial, config, system.get("vendor"))
 
     if args.once:
         print("One-shot mode complete")
@@ -512,7 +653,7 @@ def main() -> int:
         payload = {"serial_number": serial, "agent_ip": get_agent_ip(interface)}
         result = post_json(controller, "/api/v1/agents/heartbeat", payload)
         print(f"heartbeat ok: {result.get('serial_number', serial)}")
-        poll_and_execute_actions(controller, serial, config)
+        poll_and_execute_actions(controller, serial, config, system.get("vendor"))
         time.sleep(interval)
 
 

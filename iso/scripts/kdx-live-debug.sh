@@ -65,9 +65,23 @@ for key in system-manufacturer system-product-name system-version system-serial-
 done
 
 section "HPE tools"
+for tool in hponcfg ilorest ssacli hpasmcli; do
+  if command -v "${tool}" >/dev/null 2>&1; then
+    printf '%s: %s\n' "${tool}" "$(command -v "${tool}")"
+  else
+    printf '%s: not found\n' "${tool}"
+  fi
+done
+
 if command -v hponcfg >/dev/null 2>&1; then
-  command -v hponcfg
   hponcfg -h 2>&1 | sed -n '1,20p'
+  tmp_xml="$(mktemp /tmp/kdx-hponcfg-read.XXXXXX.xml)"
+  if hponcfg -w "${tmp_xml}" >/tmp/kdx-hponcfg-read.log 2>&1; then
+    grep -Ei 'IP_ADDRESS|SUBNET_MASK|GATEWAY_IP_ADDRESS|PRIM_DNS_SERVER|DNS_SERVER|VLAN' "${tmp_xml}" || true
+  else
+    cat /tmp/kdx-hponcfg-read.log
+  fi
+  rm -f "${tmp_xml}" /tmp/kdx-hponcfg-read.log
 else
   printf 'hponcfg not found\n'
 fi
