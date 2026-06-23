@@ -358,7 +358,7 @@ def build_hponcfg_network_xml(management: dict[str, Any]) -> bytes:
             add_value(network, "SEC_DNS_SERVER", dns_servers[1])
 
     vlan = string_value(management.get("vlan"))
-    if vlan:
+    if vlan and vlan != "0":
         ET.SubElement(network, "VLAN_ENABLED", {"VALUE": "Y"})
         ET.SubElement(network, "VLAN_ID", {"VALUE": vlan})
 

@@ -146,7 +146,7 @@ export function ServerDetailPage() {
               ['Gateway', server.management_config_json?.gateway ?? '-'],
               ['DNS', server.management_config_json?.dns ?? '-'],
               ['NTP', server.management_config_json?.ntp ?? '-'],
-              ['VLAN', server.management_config_json?.vlan ?? '-'],
+              ['VLAN', server.management_config_json?.vlan === '0' ? '0 (Access / Untagged)' : server.management_config_json?.vlan ?? '-'],
               ['Created', formatDate(server.created_at)],
               ['Updated', formatDate(server.updated_at)],
             ]}

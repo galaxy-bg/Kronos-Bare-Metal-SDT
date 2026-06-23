@@ -202,6 +202,7 @@ export function DashboardPage() {
     setManagementConfig({
       ...(selectedServer.management_config_json ?? {}),
       ip: selectedServer.management_config_json?.ip ?? selectedServer.bmc_ip ?? '',
+      vlan: selectedServer.management_config_json?.vlan ?? '0',
     });
     setManagementIpOpen(true);
     closeMenu();
@@ -240,7 +241,7 @@ export function DashboardPage() {
         gateway: managementConfig.gateway?.trim() || null,
         dns: managementConfig.dns?.trim() || null,
         ntp: managementConfig.ntp?.trim() || null,
-        vlan: managementConfig.vlan?.trim() || null,
+        vlan: managementConfig.vlan?.trim() || '0',
       };
       if (!normalizedConfig.ip) {
         setError('iLO IP is required.');
@@ -657,7 +658,8 @@ export function DashboardPage() {
                 <TextField
                   fullWidth
                   label="VLAN ID"
-                  placeholder="Optional"
+                  placeholder="0"
+                  helperText="0 = access / untagged; any other VLAN ID = tagged"
                   value={managementConfig.vlan ?? ''}
                   onChange={(event) => setManagementConfig({ ...managementConfig, vlan: event.target.value })}
                 />

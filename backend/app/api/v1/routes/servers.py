@@ -181,7 +181,7 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
         "gateway": payload.gateway,
         "dns": payload.dns,
         "ntp": payload.ntp,
-        "vlan": payload.vlan,
+        "vlan": payload.vlan or "0",
     }
     action = ServerAction(
         server_id=server.id,

@@ -23,7 +23,7 @@ class IloNetworkActionRequest(BaseModel):
     gateway: str | None = Field(default=None, max_length=64)
     dns: str | None = Field(default=None, max_length=255)
     ntp: str | None = Field(default=None, max_length=255)
-    vlan: str | None = Field(default=None, max_length=32)
+    vlan: str | None = Field(default="0", max_length=32)
 
     @field_validator("ip")
     @classmethod
