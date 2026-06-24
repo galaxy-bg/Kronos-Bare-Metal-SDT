@@ -492,27 +492,7 @@ export function DashboardPage() {
   }
 
   return (
-    <Stack spacing={3}>
-      <Box
-        sx={{
-          border: '1px solid',
-          borderColor: 'divider',
-          bgcolor: '#ffffff',
-          p: { xs: 2.5, md: 3 },
-          borderRadius: 2,
-        }}
-      >
-        <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 900, letterSpacing: 1.6 }}>
-          KDX SDT Control Plane
-        </Typography>
-        <Typography variant="h4" sx={{ fontWeight: 900, mt: 0.5 }}>
-          Server Discovery
-        </Typography>
-        <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, fontSize: 17 }}>
-          Discover, register and manage bare-metal servers from KDX Live USB agents.
-        </Typography>
-      </Box>
-
+    <Stack spacing={2.5}>
       {error && (
         <Alert severity="warning" sx={{ border: '1px solid #f2d6a2', bgcolor: '#fff8eb' }}>
           {error}
@@ -953,8 +933,8 @@ export function DashboardPage() {
 
 function Metric({ title, value, icon }: { title: string; value: number; icon: ReactNode }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderColor: 'divider' }}>
-      <Stack direction="row" spacing={2} alignItems="center">
+    <Paper variant="outlined" sx={{ p: 2.5, height: '100%', minHeight: 104, borderColor: 'divider' }}>
+      <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ height: '100%' }}>
         <Box
           sx={{
             color: 'primary.main',
