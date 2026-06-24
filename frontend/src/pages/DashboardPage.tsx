@@ -492,7 +492,27 @@ export function DashboardPage() {
   }
 
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={3}>
+      <Box
+        sx={{
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: '#ffffff',
+          p: { xs: 2.5, md: 3 },
+          borderRadius: 2,
+        }}
+      >
+        <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 900, letterSpacing: 1.6 }}>
+          KDX SDT Control Plane
+        </Typography>
+        <Typography variant="h4" sx={{ fontWeight: 900, mt: 0.5 }}>
+          Server Discovery
+        </Typography>
+        <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, fontSize: 17 }}>
+          Discover, register and manage bare-metal servers from KDX Live USB agents.
+        </Typography>
+      </Box>
+
       {error && (
         <Alert severity="warning" sx={{ border: '1px solid #f2d6a2', bgcolor: '#fff8eb' }}>
           {error}
@@ -659,7 +679,25 @@ export function DashboardPage() {
       </Paper>
 
       <Paper variant="outlined" sx={{ overflow: 'hidden', borderColor: 'divider', bgcolor: '#ffffff' }}>
-        <Box sx={{ px: { xs: 2, md: 2.5 }, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#eef4f3' }}>
+        <Box
+          role="button"
+          tabIndex={0}
+          onClick={() => setTasksOpen((current) => !current)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setTasksOpen((current) => !current);
+            }
+          }}
+          sx={{
+            px: { xs: 2, md: 2.5 },
+            py: 1.25,
+            borderBottom: tasksOpen ? '1px solid' : 0,
+            borderColor: 'divider',
+            bgcolor: '#eef4f3',
+            cursor: 'pointer',
+          }}
+        >
           <Stack direction="row" alignItems="center" spacing={1.5}>
             <PendingActionsIcon fontSize="small" sx={{ color: 'primary.main' }} />
             <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
@@ -670,12 +708,18 @@ export function DashboardPage() {
             )}
             <Box sx={{ flex: 1 }} />
             <Tooltip title="Refresh tasks" arrow>
-              <IconButton size="small" onClick={() => fetchRecentActions().then(setActions)}>
+              <IconButton
+                size="small"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  fetchRecentActions().then(setActions);
+                }}
+              >
                 <RefreshIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title={tasksOpen ? 'Collapse tasks' : 'Expand tasks'} arrow>
-              <IconButton size="small" onClick={() => setTasksOpen((current) => !current)}>
+              <IconButton size="small">
                 {tasksOpen ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
               </IconButton>
             </Tooltip>
@@ -933,8 +977,8 @@ export function DashboardPage() {
 
 function Metric({ title, value, icon }: { title: string; value: number; icon: ReactNode }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, height: '100%', minHeight: 104, borderColor: 'divider' }}>
-      <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ height: '100%' }}>
+    <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderColor: 'divider' }}>
+      <Stack direction="row" spacing={2} alignItems="center">
         <Box
           sx={{
             color: 'primary.main',
