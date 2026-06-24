@@ -277,6 +277,10 @@ export function IloEnrollmentPage() {
 
   async function startLiveScan() {
     if (!videoRef.current) return;
+    if (!window.isSecureContext) {
+      setError('Live camera scanning requires HTTPS on mobile browsers. Open this page with https://192.168.88.240:3000 and accept the local certificate.');
+      return;
+    }
     setError(null);
     setSuccess(null);
     setDetectedValues([]);
