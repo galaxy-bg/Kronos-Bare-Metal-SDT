@@ -65,6 +65,7 @@ import {
   fetchStats,
   updateServer,
 } from '../api/client';
+import { QrCode } from '../components/QrCode';
 import type { DashboardStats, ManagementConfig, ServerAction, ServerSummary, ServerUpdate } from '../types';
 
 const emptyStats: DashboardStats = {
@@ -880,10 +881,11 @@ export function DashboardPage() {
       <Dialog open={enrollmentOpen} onClose={closeEnrollment} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>Scan iLO Tag</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
+          <Stack spacing={2} alignItems="center" sx={{ pt: 1 }}>
             <Typography color="text.secondary">
               {selectedServer?.hostname ?? selectedServer?.serial_number}
             </Typography>
+            <QrCode value={enrollmentUrl} />
             <TextField
               fullWidth
               label="Mobile enrollment link"
