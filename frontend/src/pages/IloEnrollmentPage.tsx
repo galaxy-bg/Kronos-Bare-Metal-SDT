@@ -30,7 +30,17 @@ function candidateValues(values: string[]) {
 }
 
 function guessPassword(values: string[]) {
-  return values.find((value) => /^[A-Z0-9]{6,16}$/.test(value.replace(/\s+/g, ''))) ?? '';
+  for (const value of values) {
+    const normalized = value.replace(/\s+/g, '').toUpperCase();
+    if (/^[A-Z0-9]{6,16}$/.test(normalized) && !normalized.startsWith('ILO')) return normalized;
+
+    const passwordMatch = normalized.match(/(?:PASSWORD|PASS|PWD)[:=-]?([A-Z0-9]{6,16})/);
+    if (passwordMatch?.[1]) return passwordMatch[1];
+
+    const tokenMatch = normalized.match(/\b(?!ILO)[A-Z0-9]{6,16}\b/);
+    if (tokenMatch?.[0]) return tokenMatch[0];
+  }
+  return '';
 }
 
 function loadImage(file: File) {
@@ -49,17 +59,56 @@ function loadImage(file: File) {
   });
 }
 
-function makeCanvas(image: HTMLImageElement, crop?: { x: number; y: number; width: number; height: number }) {
+function enhanceCanvas(canvas: HTMLCanvasElement) {
+  const context = canvas.getContext('2d');
+  if (!context) return canvas;
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.55 + 128));
+    data[index] = contrasted;
+    data[index + 1] = contrasted;
+    data[index + 2] = contrasted;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function makeCanvas(
+  image: HTMLImageElement,
+  crop?: { x: number; y: number; width: number; height: number },
+  options?: { rotation?: 0 | 90 | 180 | 270; enhance?: boolean },
+) {
   const source = crop ?? { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight };
   const maxSide = 1800;
   const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
+  const rotation = options?.rotation ?? 0;
+  const rotated = rotation === 90 || rotation === 270;
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(source.width * scale));
-  canvas.height = Math.max(1, Math.round(source.height * scale));
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
+  canvas.width = rotated ? height : width;
+  canvas.height = rotated ? width : height;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas is not available.');
-  context.drawImage(image, source.x, source.y, source.width, source.height, 0, 0, canvas.width, canvas.height);
-  return canvas;
+
+  context.save();
+  if (rotation === 90) {
+    context.translate(canvas.width, 0);
+    context.rotate(Math.PI / 2);
+  } else if (rotation === 180) {
+    context.translate(canvas.width, canvas.height);
+    context.rotate(Math.PI);
+  } else if (rotation === 270) {
+    context.translate(0, canvas.height);
+    context.rotate(-Math.PI / 2);
+  }
+  context.drawImage(image, source.x, source.y, source.width, source.height, 0, 0, width, height);
+  context.restore();
+
+  return options?.enhance ? enhanceCanvas(canvas) : canvas;
 }
 
 async function detectWithNativeBarcodeDetector(file: File) {
@@ -94,20 +143,29 @@ async function detectWithZxing(file: File) {
   const reader = new BrowserMultiFormatReader(hints);
   const width = image.naturalWidth;
   const height = image.naturalHeight;
-  const crops = [
+  const crops: Array<{ x: number; y: number; width: number; height: number } | undefined> = [
     undefined,
     { x: 0, y: 0, width, height: Math.round(height * 0.5) },
     { x: 0, y: Math.round(height * 0.25), width, height: Math.round(height * 0.5) },
+    { x: 0, y: Math.round(height * 0.38), width, height: Math.round(height * 0.28) },
+    { x: 0, y: Math.round(height * 0.48), width, height: Math.round(height * 0.24) },
     { x: 0, y: Math.round(height * 0.45), width, height: Math.round(height * 0.55) },
     { x: 0, y: Math.round(height * 0.62), width, height: Math.round(height * 0.38) },
+    { x: Math.round(width * 0.05), y: Math.round(height * 0.05), width: Math.round(width * 0.9), height: Math.round(height * 0.9) },
   ];
+  const rotations: Array<0 | 90 | 180 | 270> = [0, 90, 270, 180];
   const values: string[] = [];
 
   for (const crop of crops) {
-    try {
-      values.push(reader.decodeFromCanvas(makeCanvas(image, crop)).getText());
-    } catch {
-      // Keep trying other regions; tag photos often contain two separated barcodes.
+    for (const rotation of rotations) {
+      for (const enhance of [false, true]) {
+        try {
+          values.push(reader.decodeFromCanvas(makeCanvas(image, crop, { rotation, enhance })).getText());
+          if (guessPassword(values)) return values;
+        } catch {
+          // Keep trying other variants; tag photos often have glare, rotation, or two separated barcodes.
+        }
+      }
     }
   }
 
