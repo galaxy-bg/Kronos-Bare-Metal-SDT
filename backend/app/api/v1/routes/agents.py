@@ -153,5 +153,14 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
                 server.bmc_ip = str(ip)
             server.management_config_json = management
 
+    if action.action_type == "hpe_verify_ilo_credential" and payload.status == "succeeded":
+        result = payload.result or {}
+        bmc = result.get("bmc") if isinstance(result, dict) else None
+        if isinstance(bmc, dict):
+            ip = bmc.get("ip")
+            if ip:
+                server.bmc_ip = str(ip)
+            server.management_config_json = bmc
+
     db.commit()
     return {"status": "stored"}

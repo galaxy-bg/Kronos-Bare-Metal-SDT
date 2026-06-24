@@ -72,3 +72,25 @@ export type BulkDeleteResult = {
   deleted: number;
   requested: number;
 };
+
+export type IloEnrollmentCreate = {
+  token: string;
+  url: string;
+  expires_at: string;
+};
+
+export type IloEnrollmentInfo = {
+  server_id: number;
+  serial_number: string;
+  hostname: string | null;
+  vendor: string | null;
+  model: string | null;
+  expires_at: string;
+};
+
+export type IloEnrollmentSubmitPayload = {
+  username: string;
+  password: string;
+  dns_name?: string | null;
+  create_managed_user: boolean;
+};

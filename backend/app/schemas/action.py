@@ -54,6 +54,38 @@ class IloNetworkActionRequest(BaseModel):
         return stripped or None
 
 
+class IloEnrollmentCreateResponse(BaseModel):
+    token: str
+    url: str
+    expires_at: datetime
+
+
+class IloEnrollmentRead(BaseModel):
+    server_id: int
+    serial_number: str
+    hostname: str | None = None
+    vendor: str | None = None
+    model: str | None = None
+    expires_at: datetime
+
+
+class IloEnrollmentSubmit(BaseModel):
+    username: str = Field(default="Administrator", min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+    dns_name: str | None = Field(default=None, max_length=255)
+    create_managed_user: bool = True
+
+    @field_validator("username", "password", "dns_name")
+    @classmethod
+    def strip_values(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped and value is not None:
+            return None
+        return stripped
+
+
 class ServerActionRead(BaseModel):
     id: int
     server_id: int

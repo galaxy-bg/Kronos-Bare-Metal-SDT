@@ -4,6 +4,7 @@ import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import { RouterProvider, createBrowserRouter } from 'react-router-dom';
 import App from './App';
 import { DashboardPage } from './pages/DashboardPage';
+import { IloEnrollmentPage } from './pages/IloEnrollmentPage';
 import { ServerDetailPage } from './pages/ServerDetailPage';
 import './styles.css';
 
@@ -111,6 +112,7 @@ const router = createBrowserRouter([
     element: <App />,
     children: [
       { index: true, element: <DashboardPage /> },
+      { path: 'enroll/ilo/:token', element: <IloEnrollmentPage /> },
       { path: 'servers/:serverId', element: <ServerDetailPage /> },
     ],
   },

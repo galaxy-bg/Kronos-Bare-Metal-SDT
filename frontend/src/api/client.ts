@@ -2,6 +2,9 @@ import axios from 'axios';
 import type {
   BulkDeleteResult,
   DashboardStats,
+  IloEnrollmentCreate,
+  IloEnrollmentInfo,
+  IloEnrollmentSubmitPayload,
   IloUserActionPayload,
   ManagementConfig,
   ServerAction,
@@ -48,6 +51,21 @@ export async function createIloUserAction(serverId: number, payload: IloUserActi
 
 export async function createIloNetworkAction(serverId: number, payload: ManagementConfig): Promise<ServerAction> {
   const response = await api.post<ServerAction>(`/api/v1/servers/${serverId}/actions/hpe-set-ilo-network`, payload);
+  return response.data;
+}
+
+export async function createIloEnrollment(serverId: number): Promise<IloEnrollmentCreate> {
+  const response = await api.post<IloEnrollmentCreate>(`/api/v1/servers/${serverId}/ilo-enrollment`);
+  return response.data;
+}
+
+export async function fetchIloEnrollment(token: string): Promise<IloEnrollmentInfo> {
+  const response = await api.get<IloEnrollmentInfo>(`/api/v1/servers/ilo-enrollment/${token}`);
+  return response.data;
+}
+
+export async function submitIloEnrollment(token: string, payload: IloEnrollmentSubmitPayload): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/ilo-enrollment/${token}/submit`, payload);
   return response.data;
 }
 

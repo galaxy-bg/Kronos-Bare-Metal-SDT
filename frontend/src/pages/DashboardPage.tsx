@@ -32,6 +32,7 @@ import {
 import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ClearIcon from '@mui/icons-material/Clear';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -45,6 +46,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
+import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
@@ -54,6 +56,7 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   bulkDeleteServers,
+  createIloEnrollment,
   createIloNetworkAction,
   createIloUserAction,
   deleteServer,
@@ -85,6 +88,7 @@ function actionLabel(actionType: string) {
   const labels: Record<string, string> = {
     hpe_create_ilo_user: 'Create iLO User',
     hpe_set_ilo_network: 'Set Management Network',
+    hpe_verify_ilo_credential: 'Verify iLO Credential',
   };
   return labels[actionType] ?? actionType.split('_').join(' ');
 }
@@ -206,6 +210,9 @@ export function DashboardPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [managementIpOpen, setManagementIpOpen] = useState(false);
   const [iloUserOpen, setIloUserOpen] = useState(false);
+  const [enrollmentOpen, setEnrollmentOpen] = useState(false);
+  const [enrollmentUrl, setEnrollmentUrl] = useState('');
+  const [enrollmentExpiresAt, setEnrollmentExpiresAt] = useState<string | null>(null);
   const [managementConfig, setManagementConfig] = useState<ManagementConfig>({});
   const [iloUserForm, setIloUserForm] = useState({
     username: 'hpadmin',
@@ -340,6 +347,21 @@ export function DashboardPage() {
     closeMenu();
   }
 
+  async function openIloEnrollment() {
+    if (!selectedServer) return;
+    try {
+      setError(null);
+      const enrollment = await createIloEnrollment(selectedServer.id);
+      setEnrollmentUrl(enrollment.url);
+      setEnrollmentExpiresAt(enrollment.expires_at);
+      setEnrollmentOpen(true);
+    } catch {
+      setError('iLO enrollment link could not be created.');
+    } finally {
+      closeMenu();
+    }
+  }
+
   function closeManagementIp() {
     setManagementIpOpen(false);
     setSelectedServer(null);
@@ -353,6 +375,13 @@ export function DashboardPage() {
     setShowIloPassword(false);
     setShowIloConfirmPassword(false);
     setShowIloAdminPassword(false);
+  }
+
+  function closeEnrollment() {
+    setEnrollmentOpen(false);
+    setSelectedServer(null);
+    setEnrollmentUrl('');
+    setEnrollmentExpiresAt(null);
   }
 
   async function saveManagementIp() {
@@ -834,6 +863,10 @@ export function DashboardPage() {
           <PersonAddAlt1Icon fontSize="small" sx={{ mr: 1 }} />
           Create iLO User
         </MenuItem>
+        <MenuItem onClick={openIloEnrollment}>
+          <QrCodeScannerIcon fontSize="small" sx={{ mr: 1 }} />
+          Scan iLO Tag
+        </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
           Refresh
@@ -843,6 +876,43 @@ export function DashboardPage() {
           Delete
         </MenuItem>
       </Menu>
+
+      <Dialog open={enrollmentOpen} onClose={closeEnrollment} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Scan iLO Tag</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography color="text.secondary">
+              {selectedServer?.hostname ?? selectedServer?.serial_number}
+            </Typography>
+            <TextField
+              fullWidth
+              label="Mobile enrollment link"
+              value={enrollmentUrl}
+              InputProps={{ readOnly: true }}
+            />
+            {enrollmentExpiresAt && (
+              <Typography variant="body2" color="text.secondary">
+                Expires {formatDate(enrollmentExpiresAt)}
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeEnrollment}>Close</Button>
+          <Button
+            startIcon={<ContentCopyIcon />}
+            variant="outlined"
+            onClick={() => {
+              if (enrollmentUrl) navigator.clipboard?.writeText(enrollmentUrl);
+            }}
+          >
+            Copy
+          </Button>
+          <Button component="a" href={enrollmentUrl} target="_blank" rel="noreferrer" variant="contained" disabled={!enrollmentUrl}>
+            Open
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={managementIpOpen} onClose={closeManagementIp} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>Set Management Network</DialogTitle>

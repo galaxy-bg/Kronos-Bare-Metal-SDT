@@ -413,32 +413,9 @@ def discover_hpe_bmc_with_redfish(config: dict[str, str]) -> dict[str, Any]:
     errors: list[str] = []
     for root in redfish_roots({}, config):
         try:
-            ethernet_path = redfish_first_manager_ethernet(root, auth)
-            ethernet = redfish_request(root, ethernet_path, auth=auth)
+            return redfish_find_ilo_network(root, auth)
         except RuntimeError as exc:
             errors.append(str(exc))
-            continue
-
-        for entry in redfish_ipv4_entries(ethernet):
-            address = string_value(entry.get("Address"))
-            if not is_management_ip_candidate(address):
-                continue
-            dns_servers = ethernet.get("StaticNameServers")
-            dns = ", ".join(str(server) for server in dns_servers if server) if isinstance(dns_servers, list) else None
-            return {
-                "vendor": "HPE",
-                "type": "iLO",
-                "ip": address,
-                "subnet": entry.get("SubnetMask"),
-                "gateway": entry.get("Gateway"),
-                "dns": dns,
-                "vlan": redfish_vlan_value(ethernet),
-                "redfish_endpoint": root,
-                "redfish_ethernet_interface": ethernet_path,
-                "detected_by": "redfish",
-            }
-
-        errors.append(f"{root}{ethernet_path}: no routable IPv4 management address found")
 
     return {"detected_by": "redfish-read-failed", "error": "; ".join(errors)}
 
@@ -740,6 +717,70 @@ def redfish_create_ilo_user(root: str, auth: tuple[str, str], username: str, pas
     return {"backend": "redfish", "endpoint": root, "account": result, "username": username}
 
 
+def redfish_dns_servers(ethernet: dict[str, Any]) -> str | None:
+    candidates = ethernet.get("NameServers") or ethernet.get("StaticNameServers")
+    if isinstance(candidates, list):
+        values = [str(server) for server in candidates if string_value(server) and str(server) not in {"0.0.0.0", "::"}]
+        if values:
+            return ", ".join(values)
+    return None
+
+
+def redfish_find_ilo_network(root: str, auth: tuple[str, str]) -> dict[str, Any]:
+    manager_path = redfish_first_manager(root, auth)
+    collection = redfish_request(root, f"{manager_path.rstrip('/')}/EthernetInterfaces/", auth=auth)
+    members = redfish_members(collection)
+    if not members:
+        raise RuntimeError("Redfish manager EthernetInterfaces collection has no members")
+
+    skipped: list[str] = []
+    for ethernet_path in members:
+        ethernet = redfish_request(root, ethernet_path, auth=auth)
+        for entry in redfish_ipv4_entries(ethernet):
+            address = string_value(entry.get("Address"))
+            if not is_management_ip_candidate(address):
+                if address:
+                    skipped.append(address)
+                continue
+            return {
+                "vendor": "HPE",
+                "type": "iLO",
+                "ip": address,
+                "subnet": entry.get("SubnetMask"),
+                "gateway": entry.get("Gateway"),
+                "dns": redfish_dns_servers(ethernet),
+                "vlan": redfish_vlan_value(ethernet),
+                "redfish_endpoint": root,
+                "redfish_ethernet_interface": ethernet_path,
+                "detected_by": "redfish",
+            }
+
+    raise RuntimeError(f"No routable iLO management IPv4 address found. Skipped: {', '.join(skipped) or 'none'}")
+
+
+def redfish_verify_ilo_credential(root: str, auth: tuple[str, str], payload: dict[str, Any], config: dict[str, str]) -> dict[str, Any]:
+    bmc = redfish_find_ilo_network(root, auth)
+    result: dict[str, Any] = {
+        "backend": "redfish",
+        "endpoint": root,
+        "bmc": bmc,
+        "dns_name": string_value(payload.get("dns_name")),
+        "credential": {"username": auth[0], "verified": True},
+    }
+
+    if payload.get("create_managed_user"):
+        managed_user = string_value(setting(config, "KDX_DEFAULT_ILO_USER", "hpadmin")) or "hpadmin"
+        managed_password = string_value(setting(config, "KDX_DEFAULT_ILO_PASSWORD", "HP1nv3nt")) or "HP1nv3nt"
+        if managed_user != auth[0]:
+            try:
+                created = redfish_create_ilo_user(root, auth, managed_user, managed_password)
+                result["managed_user"] = {"username": created["username"], "created": True}
+            except RuntimeError as exc:
+                result["managed_user"] = {"username": managed_user, "created": False, "error": str(exc)}
+
+    return result
+
+
 def cidr_to_mask(prefix: int) -> str:
     mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
     return ".".join(str((mask >> shift) & 0xFF) for shift in (24, 16, 8, 0))
@@ -865,6 +906,13 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
 
     action_type = action.get("action_type")
     payload = action.get("payload") or {}
+
+    if action_type == "hpe_verify_ilo_credential":
+        return run_redfish_action(
+            payload,
+            config,
+            lambda root, auth: redfish_verify_ilo_credential(root, auth, payload, config),
+        )
 
     if action_type == "hpe_create_ilo_user":
         username = string_value(payload.get("username"))

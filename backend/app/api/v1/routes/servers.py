@@ -1,21 +1,97 @@
+import base64
 from datetime import UTC, datetime, timedelta
+import hashlib
+import hmac
+import json
+import os
+import secrets
 import subprocess
 from shutil import which
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.models.server_action import ServerAction
 from app.models.server import Server
-from app.schemas.action import IloNetworkActionRequest, IloUserActionRequest, ServerActionRead
+from app.schemas.action import (
+    IloEnrollmentCreateResponse,
+    IloEnrollmentRead,
+    IloEnrollmentSubmit,
+    IloNetworkActionRequest,
+    IloUserActionRequest,
+    ServerActionRead,
+)
 from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ServerDetail, ServerRead, ServerUpdate
 
 router = APIRouter()
 OFFLINE_AFTER = timedelta(minutes=5)
 DEFAULT_COMPLETED_ACTION_VISIBLE_MINUTES = 10
+ENROLLMENT_TOKEN_TTL = timedelta(minutes=15)
+ENROLLMENT_SECRET = os.environ.get("KDX_ENROLLMENT_SECRET") or secrets.token_urlsafe(32)
+
+
+def b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def sign_payload(payload: bytes) -> str:
+    return b64url_encode(hmac.new(ENROLLMENT_SECRET.encode("utf-8"), payload, hashlib.sha256).digest())
+
+
+def create_enrollment_token(server: Server, expires_at: datetime) -> str:
+    payload = {
+        "server_id": server.id,
+        "serial_number": server.serial_number,
+        "expires_at": expires_at.isoformat(),
+        "nonce": secrets.token_urlsafe(12),
+    }
+    encoded_payload = b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = sign_payload(encoded_payload.encode("ascii"))
+    return f"{encoded_payload}.{signature}"
+
+
+def read_enrollment_token(token: str) -> dict[str, Any]:
+    try:
+        encoded_payload, signature = token.split(".", 1)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid enrollment token") from exc
+
+    expected = sign_payload(encoded_payload.encode("ascii"))
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid enrollment token")
+
+    try:
+        payload = json.loads(b64url_decode(encoded_payload).decode("utf-8"))
+        expires_at = datetime.fromisoformat(str(payload["expires_at"]))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid enrollment token") from exc
+
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at < datetime.now(UTC):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Enrollment token expired")
+
+    payload["expires_at"] = expires_at
+    return payload
+
+
+def enrollment_url(request: Request, token: str) -> str:
+    origin = request.headers.get("origin")
+    if origin:
+        base = origin.rstrip("/")
+    else:
+        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("host", str(request.url.netloc))
+        base = f"{forwarded_proto}://{host}".rstrip("/")
+    return f"{base}/enroll/ilo/{token}"
 
 
 def ping_ip(ip_address: str | None) -> bool | None:
@@ -123,6 +199,57 @@ def recent_server_actions(
         .limit(bounded_limit)
     ).all()
     return [action_to_read(action) for action in actions]
+
+
+@router.post("/{server_id}/ilo-enrollment", response_model=IloEnrollmentCreateResponse)
+def create_ilo_enrollment(server_id: int, request: Request, db: Session = Depends(get_db)) -> IloEnrollmentCreateResponse:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    expires_at = datetime.now(UTC) + ENROLLMENT_TOKEN_TTL
+    token = create_enrollment_token(server, expires_at)
+    return IloEnrollmentCreateResponse(token=token, url=enrollment_url(request, token), expires_at=expires_at)
+
+
+@router.get("/ilo-enrollment/{token}", response_model=IloEnrollmentRead)
+def get_ilo_enrollment(token: str, db: Session = Depends(get_db)) -> IloEnrollmentRead:
+    payload = read_enrollment_token(token)
+    server = db.get(Server, int(payload["server_id"]))
+    if server is None or server.serial_number != payload.get("serial_number"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    return IloEnrollmentRead(
+        server_id=server.id,
+        serial_number=server.serial_number,
+        hostname=server.hostname,
+        vendor=server.vendor,
+        model=server.model,
+        expires_at=payload["expires_at"],
+    )
+
+
+@router.post("/ilo-enrollment/{token}/submit", response_model=ServerActionRead, status_code=status.HTTP_201_CREATED)
+def submit_ilo_enrollment(token: str, payload: IloEnrollmentSubmit, db: Session = Depends(get_db)) -> dict[str, Any]:
+    token_payload = read_enrollment_token(token)
+    server = db.get(Server, int(token_payload["server_id"]))
+    if server is None or server.serial_number != token_payload.get("serial_number"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    action = ServerAction(
+        server_id=server.id,
+        action_type="hpe_verify_ilo_credential",
+        payload_json={
+            "auth": {"username": payload.username, "password": payload.password},
+            "dns_name": payload.dns_name,
+            "source": "ilo-tag-scan",
+            "create_managed_user": payload.create_managed_user,
+        },
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
 
 
 @router.get("/{server_id}", response_model=ServerDetail)
