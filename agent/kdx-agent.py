@@ -289,6 +289,27 @@ def parse_hponcfg_value(root: ET.Element, *tags: str) -> str | None:
     return None
 
 
+def printable_text(value: str) -> str:
+    return "".join(character if character.isprintable() or character in "\n\t" else " " for character in value)
+
+
+def summarize_hponcfg_error(output: str, returncode: int) -> str:
+    cleaned = printable_text(output).strip()
+    if "CPQCIDRV driver is not loaded" in cleaned:
+        return "hponcfg cannot access iLO: CPQCIDRV driver is not loaded"
+    if "detecting Management Processor" in cleaned:
+        return "hponcfg could not detect the iLO management processor"
+
+    useful_lines = []
+    for line in cleaned.splitlines():
+        line = line.strip()
+        if line.startswith(("ERROR:", "ACTION REQUIRED:", "Driver Error Message:")):
+            useful_lines.append(line)
+    if useful_lines:
+        return " ".join(useful_lines[:3])
+    return f"hponcfg exited {returncode}"
+
+
 def discover_hpe_bmc_with_hponcfg() -> dict[str, Any]:
     executable = hponcfg_path()
     if executable is None:
@@ -309,7 +330,10 @@ def discover_hpe_bmc_with_hponcfg() -> dict[str, Any]:
         )
         if result.returncode != 0:
             output = (result.stdout + "\n" + result.stderr).strip()
-            return {"detected_by": "hponcfg-read-failed", "error": output or f"hponcfg exited {result.returncode}"}
+            return {
+                "detected_by": "hponcfg-read-failed",
+                "error": summarize_hponcfg_error(output, result.returncode),
+            }
 
         try:
             root = ET.parse(xml_path).getroot()
@@ -381,7 +405,10 @@ def redfish_ipv4_entries(ethernet: dict[str, Any]) -> list[dict[str, Any]]:
 def discover_hpe_bmc_with_redfish(config: dict[str, str]) -> dict[str, Any]:
     auth = redfish_auth_from_config(config)
     if auth is None:
-        return {"detected_by": "redfish-auth-missing"}
+        return {
+            "detected_by": "redfish-auth-missing",
+            "error": "iLO credentials are required to read management network settings over Redfish",
+        }
 
     errors: list[str] = []
     for root in redfish_roots({}, config):
