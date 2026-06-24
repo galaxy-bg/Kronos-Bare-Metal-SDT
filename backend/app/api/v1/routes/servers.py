@@ -101,6 +101,13 @@ def bulk_delete_servers(payload: BulkDeleteRequest, db: Session = Depends(get_db
     return BulkDeleteResponse(deleted=len(servers), requested=len(unique_ids))
 
 
+@router.get("/actions/recent", response_model=list[ServerActionRead])
+def recent_server_actions(limit: int = 50, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    bounded_limit = min(max(limit, 1), 200)
+    actions = db.scalars(select(ServerAction).order_by(desc(ServerAction.requested_at)).limit(bounded_limit)).all()
+    return [action_to_read(action) for action in actions]
+
+
 @router.get("/{server_id}", response_model=ServerDetail)
 def get_server(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     refresh_server_statuses(db)

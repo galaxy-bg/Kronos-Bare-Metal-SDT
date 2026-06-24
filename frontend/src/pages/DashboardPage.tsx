@@ -1,4 +1,4 @@
-import { MouseEvent, ReactNode, useEffect, useState } from 'react';
+import { MouseEvent, ReactElement, ReactNode, useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -6,6 +6,7 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -31,23 +32,37 @@ import {
 import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ClearIcon from '@mui/icons-material/Clear';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import DnsIcon from '@mui/icons-material/Dns';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditIcon from '@mui/icons-material/Edit';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import LanIcon from '@mui/icons-material/Lan';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
+import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { Link as RouterLink } from 'react-router-dom';
-import { bulkDeleteServers, createIloNetworkAction, createIloUserAction, deleteServer, fetchServers, fetchStats, updateServer } from '../api/client';
-import type { DashboardStats, ManagementConfig, ServerSummary, ServerUpdate } from '../types';
+import {
+  bulkDeleteServers,
+  createIloNetworkAction,
+  createIloUserAction,
+  deleteServer,
+  fetchRecentActions,
+  fetchServers,
+  fetchStats,
+  updateServer,
+} from '../api/client';
+import type { DashboardStats, ManagementConfig, ServerAction, ServerSummary, ServerUpdate } from '../types';
 
 const emptyStats: DashboardStats = {
   total_servers: 0,
@@ -62,6 +77,18 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function formatOptionalDate(value: string | null) {
+  return value ? formatDate(value) : '-';
+}
+
+function actionLabel(actionType: string) {
+  const labels: Record<string, string> = {
+    hpe_create_ilo_user: 'Create iLO User',
+    hpe_set_ilo_network: 'Set Management Network',
+  };
+  return labels[actionType] ?? actionType.split('_').join(' ');
+}
+
 function StatusChip({ status }: { status: string }) {
   const online = status === 'online';
   return (
@@ -73,6 +100,62 @@ function StatusChip({ status }: { status: string }) {
         color: online ? '#1f7d55' : '#62666f',
         border: '1px solid',
         borderColor: online ? '#bfe8d2' : '#dfe5e3',
+      }}
+    />
+  );
+}
+
+function ActionStatusChip({ status }: { status: string }) {
+  const variants: Record<string, { label: string; color: string; bg: string; border: string; icon: ReactElement }> = {
+    pending: {
+      label: 'Queued',
+      color: '#75611d',
+      bg: '#fff8df',
+      border: '#ead58a',
+      icon: <PendingActionsIcon />,
+    },
+    running: {
+      label: 'Running',
+      color: '#1d6680',
+      bg: '#eaf7fb',
+      border: '#addce9',
+      icon: <CircularProgress size={13} color="inherit" />,
+    },
+    succeeded: {
+      label: 'Completed',
+      color: '#1f7d55',
+      bg: '#e7f7ef',
+      border: '#bfe8d2',
+      icon: <TaskAltIcon />,
+    },
+    failed: {
+      label: 'Failed',
+      color: '#b23b32',
+      bg: '#fff1ef',
+      border: '#f2c4bf',
+      icon: <ErrorOutlineIcon />,
+    },
+  };
+  const variant = variants[status] ?? {
+    label: status,
+    color: '#62666f',
+    bg: '#f3f5f5',
+    border: '#dfe5e3',
+    icon: <HelpOutlineIcon />,
+  };
+
+  return (
+    <Chip
+      size="small"
+      icon={variant.icon}
+      label={variant.label}
+      sx={{
+        bgcolor: variant.bg,
+        color: variant.color,
+        border: '1px solid',
+        borderColor: variant.border,
+        fontWeight: 800,
+        '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
       }}
     />
   );
@@ -115,6 +198,7 @@ function IpReachability({ ip, reachable }: { ip: string | null; reachable: boole
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [servers, setServers] = useState<ServerSummary[]>([]);
+  const [actions, setActions] = useState<ServerAction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
@@ -131,6 +215,7 @@ export function DashboardPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [filterText, setFilterText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tasksOpen, setTasksOpen] = useState(true);
 
   const normalizedFilter = filterText.trim().toLowerCase();
   const filteredServers = servers.filter((server) => {
@@ -153,13 +238,16 @@ export function DashboardPage() {
   const selectedVisibleIds = filteredServers.filter((server) => selectedIds.includes(server.id)).map((server) => server.id);
   const allVisibleSelected = filteredServers.length > 0 && selectedVisibleIds.length === filteredServers.length;
   const partiallyVisibleSelected = selectedVisibleIds.length > 0 && selectedVisibleIds.length < filteredServers.length;
+  const serverById = new Map(servers.map((server) => [server.id, server]));
+  const activeActionCount = actions.filter((action) => action.status === 'pending' || action.status === 'running').length;
 
   async function load() {
     try {
       setError(null);
-      const [statsData, serverData] = await Promise.all([fetchStats(), fetchServers()]);
+      const [statsData, serverData, actionData] = await Promise.all([fetchStats(), fetchServers(), fetchRecentActions()]);
       setStats(statsData);
       setServers(serverData);
+      setActions(actionData);
       setSelectedIds((current) => current.filter((id) => serverData.some((server) => server.id === id)));
     } catch {
       setError('Backend API is not reachable.');
@@ -171,6 +259,19 @@ export function DashboardPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (activeActionCount === 0) return undefined;
+    const timer = window.setInterval(() => {
+      fetchRecentActions()
+        .then(setActions)
+        .catch(() => undefined);
+      fetchServers()
+        .then(setServers)
+        .catch(() => undefined);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [activeActionCount]);
 
   function openMenu(event: MouseEvent<HTMLElement>, server: ServerSummary) {
     event.preventDefault();
@@ -575,6 +676,93 @@ export function DashboardPage() {
             </TableBody>
           </Table>
         </TableContainer>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ overflow: 'hidden', borderColor: 'divider', bgcolor: '#ffffff' }}>
+        <Box sx={{ px: { xs: 2, md: 2.5 }, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#eef4f3' }}>
+          <Stack direction="row" alignItems="center" spacing={1.5}>
+            <PendingActionsIcon fontSize="small" sx={{ color: 'primary.main' }} />
+            <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+              Recent Tasks
+            </Typography>
+            {activeActionCount > 0 && (
+              <Chip size="small" label={`${activeActionCount} active`} sx={{ bgcolor: '#fff8df', color: '#75611d', fontWeight: 900 }} />
+            )}
+            <Box sx={{ flex: 1 }} />
+            <Tooltip title="Refresh tasks" arrow>
+              <IconButton size="small" onClick={() => fetchRecentActions().then(setActions)}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={tasksOpen ? 'Collapse tasks' : 'Expand tasks'} arrow>
+              <IconButton size="small" onClick={() => setTasksOpen((current) => !current)}>
+                {tasksOpen ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </Box>
+        <Collapse in={tasksOpen} timeout="auto" unmountOnExit>
+          <TableContainer sx={{ maxHeight: 300 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Task</TableCell>
+                  <TableCell>Target</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Queued</TableCell>
+                  <TableCell>Started</TableCell>
+                  <TableCell>Completed</TableCell>
+                  <TableCell>Result</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {actions.map((action) => {
+                  const target = serverById.get(action.server_id);
+                  const resultText = action.error_message || (action.status === 'succeeded' ? 'Completed successfully' : '-');
+                  return (
+                    <TableRow key={action.id} hover>
+                      <TableCell sx={{ fontWeight: 800 }}>{actionLabel(action.action_type)}</TableCell>
+                      <TableCell>
+                        {target ? (
+                          <Link component={RouterLink} to={`/servers/${target.id}`} underline="hover" sx={{ fontWeight: 800 }}>
+                            {target.hostname ?? target.serial_number}
+                          </Link>
+                        ) : (
+                          `Server #${action.server_id}`
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <ActionStatusChip status={action.status} />
+                      </TableCell>
+                      <TableCell>{formatDate(action.requested_at)}</TableCell>
+                      <TableCell>{formatOptionalDate(action.started_at)}</TableCell>
+                      <TableCell>{formatOptionalDate(action.completed_at)}</TableCell>
+                      <TableCell>
+                        <Typography
+                          variant="body2"
+                          color={action.status === 'failed' ? 'error.main' : 'text.secondary'}
+                          sx={{ maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          title={resultText}
+                        >
+                          {resultText}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {actions.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7}>
+                      <Typography sx={{ py: 3, textAlign: 'center' }} color="text.secondary">
+                        No queued actions yet.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Collapse>
       </Paper>
 
       <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeMenu}>

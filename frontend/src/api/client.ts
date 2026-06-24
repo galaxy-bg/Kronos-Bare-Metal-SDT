@@ -24,6 +24,11 @@ export async function fetchServers(): Promise<ServerSummary[]> {
   return response.data;
 }
 
+export async function fetchRecentActions(limit = 50): Promise<ServerAction[]> {
+  const response = await api.get<ServerAction[]>('/api/v1/servers/actions/recent', { params: { limit } });
+  return response.data;
+}
+
 export async function fetchServer(serverId: string): Promise<ServerDetail> {
   const response = await api.get<ServerDetail>(`/api/v1/servers/${serverId}`);
   return response.data;
