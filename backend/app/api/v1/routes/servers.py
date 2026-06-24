@@ -4,7 +4,7 @@ from shutil import which
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
@@ -15,6 +15,7 @@ from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardS
 
 router = APIRouter()
 OFFLINE_AFTER = timedelta(minutes=5)
+DEFAULT_COMPLETED_ACTION_VISIBLE_MINUTES = 10
 
 
 def ping_ip(ip_address: str | None) -> bool | None:
@@ -102,9 +103,25 @@ def bulk_delete_servers(payload: BulkDeleteRequest, db: Session = Depends(get_db
 
 
 @router.get("/actions/recent", response_model=list[ServerActionRead])
-def recent_server_actions(limit: int = 50, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def recent_server_actions(
+    limit: int = 50,
+    completed_visible_minutes: int = DEFAULT_COMPLETED_ACTION_VISIBLE_MINUTES,
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
     bounded_limit = min(max(limit, 1), 200)
-    actions = db.scalars(select(ServerAction).order_by(desc(ServerAction.requested_at)).limit(bounded_limit)).all()
+    visible_for = timedelta(minutes=min(max(completed_visible_minutes, 1), 1440))
+    completed_cutoff = datetime.now(UTC) - visible_for
+    actions = db.scalars(
+        select(ServerAction)
+        .where(
+            or_(
+                ServerAction.status.in_(("pending", "running")),
+                ServerAction.completed_at >= completed_cutoff,
+            )
+        )
+        .order_by(desc(ServerAction.requested_at))
+        .limit(bounded_limit)
+    ).all()
     return [action_to_read(action) for action in actions]
 
 

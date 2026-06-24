@@ -281,6 +281,16 @@ export function DashboardPage() {
     return () => window.clearInterval(timer);
   }, [activeActionCount]);
 
+  useEffect(() => {
+    if (actions.length === 0 || activeActionCount > 0) return undefined;
+    const timer = window.setInterval(() => {
+      fetchRecentActions()
+        .then(setActions)
+        .catch(() => undefined);
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [actions.length, activeActionCount]);
+
   function openMenu(event: MouseEvent<HTMLElement>, server: ServerSummary) {
     event.preventDefault();
     event.stopPropagation();
