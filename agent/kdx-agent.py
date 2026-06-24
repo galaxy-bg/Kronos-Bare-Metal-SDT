@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import os
 import socket
@@ -332,6 +333,89 @@ def discover_hpe_bmc_with_hponcfg() -> dict[str, Any]:
             pass
 
 
+def redfish_auth_from_config(config: dict[str, str]) -> tuple[str, str] | None:
+    username = string_value(setting(config, "KDX_ILO_USERNAME")) or string_value(setting(config, "KDX_REDFISH_USERNAME"))
+    password = string_value(setting(config, "KDX_ILO_PASSWORD")) or string_value(setting(config, "KDX_REDFISH_PASSWORD"))
+    if username and password:
+        return username, password
+    return None
+
+
+def is_management_ip_candidate(value: str | None) -> bool:
+    address = string_value(value)
+    if not address:
+        return False
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    if ip.version != 4:
+        return False
+    if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+        return False
+    # HPE host interface Redfish lives on a point-to-point 16.1.15.0/30 link.
+    # It is useful as a local API endpoint, but it is not the routable iLO IP
+    # that operators expect to see in the control plane.
+    if ip in ipaddress.ip_network("16.1.15.0/30"):
+        return False
+    return True
+
+
+def redfish_vlan_value(ethernet: dict[str, Any]) -> str:
+    vlan = ethernet.get("VLAN") if isinstance(ethernet.get("VLAN"), dict) else {}
+    if not vlan.get("VLANEnable"):
+        return "0"
+    vlan_id = vlan.get("VLANId")
+    return str(vlan_id) if vlan_id is not None else "0"
+
+
+def redfish_ipv4_entries(ethernet: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for key in ("IPv4Addresses", "IPv4StaticAddresses"):
+        value = ethernet.get(key)
+        if isinstance(value, list):
+            entries.extend(entry for entry in value if isinstance(entry, dict))
+    return entries
+
+
+def discover_hpe_bmc_with_redfish(config: dict[str, str]) -> dict[str, Any]:
+    auth = redfish_auth_from_config(config)
+    if auth is None:
+        return {"detected_by": "redfish-auth-missing"}
+
+    errors: list[str] = []
+    for root in redfish_roots({}, config):
+        try:
+            ethernet_path = redfish_first_manager_ethernet(root, auth)
+            ethernet = redfish_request(root, ethernet_path, auth=auth)
+        except RuntimeError as exc:
+            errors.append(str(exc))
+            continue
+
+        for entry in redfish_ipv4_entries(ethernet):
+            address = string_value(entry.get("Address"))
+            if not is_management_ip_candidate(address):
+                continue
+            dns_servers = ethernet.get("StaticNameServers")
+            dns = ", ".join(str(server) for server in dns_servers if server) if isinstance(dns_servers, list) else None
+            return {
+                "vendor": "HPE",
+                "type": "iLO",
+                "ip": address,
+                "subnet": entry.get("SubnetMask"),
+                "gateway": entry.get("Gateway"),
+                "dns": dns,
+                "vlan": redfish_vlan_value(ethernet),
+                "redfish_endpoint": root,
+                "redfish_ethernet_interface": ethernet_path,
+                "detected_by": "redfish",
+            }
+
+        errors.append(f"{root}{ethernet_path}: no routable IPv4 management address found")
+
+    return {"detected_by": "redfish-read-failed", "error": "; ".join(errors)}
+
+
 def detect_bmc(config: dict[str, str], system_vendor: str | None) -> dict[str, Any]:
     bmc_ip = setting(config, "KDX_BMC_IP")
     bmc_type = setting(config, "KDX_BMC_TYPE", "iLO" if is_hpe_vendor(system_vendor) else None)
@@ -345,9 +429,24 @@ def detect_bmc(config: dict[str, str], system_vendor: str | None) -> dict[str, A
         }
 
     if is_hpe_vendor(system_vendor) and bool_setting(config, "KDX_DISCOVER_HPE_BMC", True):
-        discovered = discover_hpe_bmc_with_hponcfg()
-        if discovered.get("ip"):
-            return discovered
+        discovery_attempts: list[dict[str, Any]] = []
+        redfish_discovered = discover_hpe_bmc_with_redfish(config)
+        if redfish_discovered.get("ip"):
+            return redfish_discovered
+        discovery_attempts.append(redfish_discovered)
+
+        hponcfg_discovered = discover_hpe_bmc_with_hponcfg()
+        if hponcfg_discovered.get("ip"):
+            return hponcfg_discovered
+        discovery_attempts.append(hponcfg_discovered)
+
+        return {
+            "vendor": bmc_vendor,
+            "type": bmc_type,
+            "ip": None,
+            "detected_by": "pending-management-network-config",
+            "discovery_attempts": discovery_attempts,
+        }
 
     return {
         "vendor": bmc_vendor,
@@ -586,7 +685,7 @@ def redfish_members(collection: dict[str, Any]) -> list[str]:
     return members
 
 
-def redfish_first_manager(root: str, auth: tuple[str, str]) -> str:
+def redfish_first_manager(root: str, auth: tuple[str, str] | None) -> str:
     collection = redfish_request(root, "/redfish/v1/Managers/", auth=auth)
     members = redfish_members(collection)
     if not members:
@@ -594,7 +693,7 @@ def redfish_first_manager(root: str, auth: tuple[str, str]) -> str:
     return members[0]
 
 
-def redfish_first_manager_ethernet(root: str, auth: tuple[str, str]) -> str:
+def redfish_first_manager_ethernet(root: str, auth: tuple[str, str] | None) -> str:
     manager_path = redfish_first_manager(root, auth)
     collection = redfish_request(root, f"{manager_path.rstrip('/')}/EthernetInterfaces/", auth=auth)
     members = redfish_members(collection)
