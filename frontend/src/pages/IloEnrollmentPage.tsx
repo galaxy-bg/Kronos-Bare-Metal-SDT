@@ -15,6 +15,8 @@ import {
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import KeyIcon from '@mui/icons-material/Key';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { useParams } from 'react-router-dom';
 import { fetchIloEnrollment, submitIloEnrollment } from '../api/client';
 import type { IloEnrollmentInfo } from '../types';
@@ -29,6 +31,87 @@ function candidateValues(values: string[]) {
 
 function guessPassword(values: string[]) {
   return values.find((value) => /^[A-Z0-9]{6,16}$/.test(value.replace(/\s+/g, ''))) ?? '';
+}
+
+function loadImage(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Image could not be loaded.'));
+    };
+    image.src = url;
+  });
+}
+
+function makeCanvas(image: HTMLImageElement, crop?: { x: number; y: number; width: number; height: number }) {
+  const source = crop ?? { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight };
+  const maxSide = 1800;
+  const scale = Math.min(1, maxSide / Math.max(source.width, source.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(source.width * scale));
+  canvas.height = Math.max(1, Math.round(source.height * scale));
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is not available.');
+  context.drawImage(image, source.x, source.y, source.width, source.height, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+async function detectWithNativeBarcodeDetector(file: File) {
+  const detectorType = (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+  if (!detectorType) return [];
+
+  const bitmap = await createImageBitmap(file);
+  const detector = new detectorType({
+    formats: ['code_128', 'code_39', 'code_93', 'codabar', 'data_matrix', 'itf', 'qr_code'],
+  });
+  try {
+    return (await detector.detect(bitmap)).map((barcode) => barcode.rawValue);
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function detectWithZxing(file: File) {
+  const image = await loadImage(file);
+  const hints = new Map<DecodeHintType, unknown>();
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.CODABAR,
+    BarcodeFormat.DATA_MATRIX,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
+  ]);
+
+  const reader = new BrowserMultiFormatReader(hints);
+  const width = image.naturalWidth;
+  const height = image.naturalHeight;
+  const crops = [
+    undefined,
+    { x: 0, y: 0, width, height: Math.round(height * 0.5) },
+    { x: 0, y: Math.round(height * 0.25), width, height: Math.round(height * 0.5) },
+    { x: 0, y: Math.round(height * 0.45), width, height: Math.round(height * 0.55) },
+    { x: 0, y: Math.round(height * 0.62), width, height: Math.round(height * 0.38) },
+  ];
+  const values: string[] = [];
+
+  for (const crop of crops) {
+    try {
+      values.push(reader.decodeFromCanvas(makeCanvas(image, crop)).getText());
+    } catch {
+      // Keep trying other regions; tag photos often contain two separated barcodes.
+    }
+  }
+
+  return values;
 }
 
 export function IloEnrollmentPage() {
@@ -64,21 +147,16 @@ export function IloEnrollmentPage() {
     setError(null);
     setSuccess(null);
     try {
-      const detectorType = (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
-      if (!detectorType) {
-        setError('Barcode scan is not supported on this browser.');
-        return;
-      }
-
-      const bitmap = await createImageBitmap(file);
-      const detector = new detectorType({ formats: ['code_128', 'code_39', 'qr_code'] });
-      const values = candidateValues((await detector.detect(bitmap)).map((barcode) => barcode.rawValue));
+      const values = candidateValues([
+        ...(await detectWithZxing(file)),
+        ...(await detectWithNativeBarcodeDetector(file)),
+      ]);
       setDetectedValues(values);
       const guessedPassword = guessPassword(values);
       if (guessedPassword && !password) setPassword(guessedPassword);
       const guessedDns = values.find((value) => value.toUpperCase().startsWith('ILO'));
       if (guessedDns && !dnsName) setDnsName(guessedDns);
-      if (values.length === 0) setError('No barcode was detected.');
+      if (values.length === 0) setError('No barcode was detected. Try a closer, well-lit photo of the iLO tag.');
     } catch {
       setError('Barcode scan failed.');
     } finally {
