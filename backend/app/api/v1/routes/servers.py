@@ -135,13 +135,22 @@ def update_server(server_id: int, payload: ServerUpdate, db: Session = Depends(g
     return server_to_read(server)
 
 
+def mask_secret_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        masked: dict[str, Any] = {}
+        for key, item in value.items():
+            if "password" in key.lower():
+                masked[key] = "********"
+            else:
+                masked[key] = mask_secret_fields(item)
+        return masked
+    if isinstance(value, list):
+        return [mask_secret_fields(item) for item in value]
+    return value
+
+
 def mask_action_payload(action_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if action_type != "hpe_create_ilo_user":
-        return payload
-    masked = dict(payload)
-    if "password" in masked:
-        masked["password"] = "********"
-    return masked
+    return mask_secret_fields(payload)
 
 
 def action_to_read(action: ServerAction) -> dict[str, Any]:
@@ -168,7 +177,15 @@ def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Se
     action = ServerAction(
         server_id=server.id,
         action_type="hpe_create_ilo_user",
-        payload_json={"username": payload.username, "password": payload.password},
+        payload_json={
+            "username": payload.username,
+            "password": payload.password,
+            "bmc_ip": server.bmc_ip,
+            "auth": {
+                "username": payload.admin_username,
+                "password": payload.admin_password,
+            },
+        },
     )
     db.add(action)
     db.commit()
@@ -193,7 +210,14 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
     action = ServerAction(
         server_id=server.id,
         action_type="hpe_set_ilo_network",
-        payload_json={"management": management_config},
+        payload_json={
+            "management": management_config,
+            "bmc_ip": server.bmc_ip,
+            "auth": {
+                "username": payload.admin_username,
+                "password": payload.admin_password,
+            },
+        },
     )
     server.bmc_ip = payload.ip
     server.management_config_json = management_config

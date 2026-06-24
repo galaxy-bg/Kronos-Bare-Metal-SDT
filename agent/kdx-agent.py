@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import socket
+import ssl
 import subprocess
 import tempfile
 import time
@@ -520,6 +522,184 @@ def string_value(value: Any) -> str | None:
     return stripped or None
 
 
+def redfish_auth(payload: dict[str, Any]) -> tuple[str, str] | None:
+    auth = payload.get("auth") if isinstance(payload.get("auth"), dict) else {}
+    username = string_value(auth.get("username"))
+    password = string_value(auth.get("password"))
+    if username and password:
+        return username, password
+    return None
+
+
+def redfish_roots(payload: dict[str, Any], config: dict[str, str]) -> list[str]:
+    roots: list[str] = []
+    configured = string_value(setting(config, "KDX_REDFISH_URL"))
+    local_endpoint = string_value(setting(config, "KDX_HPE_LOCAL_REDFISH_URL", "https://16.1.15.1"))
+    bmc_ip = string_value(payload.get("bmc_ip")) or string_value(setting(config, "KDX_BMC_IP"))
+
+    for root in [configured, local_endpoint, f"https://{bmc_ip}" if bmc_ip else None]:
+        if not root:
+            continue
+        normalized = root.rstrip("/")
+        if normalized not in roots:
+            roots.append(normalized)
+    return roots
+
+
+def redfish_request(
+    root: str,
+    path: str,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    auth: tuple[str, str] | None = None,
+    timeout: int = 15,
+) -> dict[str, Any]:
+    url = f"{root.rstrip('/')}{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    if auth is not None:
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {token}"
+
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    context = ssl._create_unverified_context()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            return json.loads(body) if body else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"{method} {url} failed with HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{method} {url} failed: {exc.reason}") from exc
+
+
+def redfish_members(collection: dict[str, Any]) -> list[str]:
+    members: list[str] = []
+    for member in collection.get("Members", []):
+        if isinstance(member, dict):
+            path = string_value(member.get("@odata.id"))
+            if path:
+                members.append(path)
+    return members
+
+
+def redfish_first_manager(root: str, auth: tuple[str, str]) -> str:
+    collection = redfish_request(root, "/redfish/v1/Managers/", auth=auth)
+    members = redfish_members(collection)
+    if not members:
+        raise RuntimeError("Redfish manager collection has no members")
+    return members[0]
+
+
+def redfish_first_manager_ethernet(root: str, auth: tuple[str, str]) -> str:
+    manager_path = redfish_first_manager(root, auth)
+    collection = redfish_request(root, f"{manager_path.rstrip('/')}/EthernetInterfaces/", auth=auth)
+    members = redfish_members(collection)
+    if not members:
+        raise RuntimeError("Redfish manager EthernetInterfaces collection has no members")
+    return members[0]
+
+
+def redfish_create_ilo_user(root: str, auth: tuple[str, str], username: str, password: str) -> dict[str, Any]:
+    request = {
+        "UserName": username,
+        "Password": password,
+        "RoleId": "Administrator",
+        "Enabled": True,
+    }
+    result = redfish_request(root, "/redfish/v1/AccountService/Accounts/", method="POST", payload=request, auth=auth)
+    return {"backend": "redfish", "endpoint": root, "account": result, "username": username}
+
+
+def cidr_to_mask(prefix: int) -> str:
+    mask = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
+    return ".".join(str((mask >> shift) & 0xFF) for shift in (24, 16, 8, 0))
+
+
+def subnet_to_prefix_or_mask(value: str | None) -> tuple[int | None, str | None]:
+    normalized = normalize_subnet_mask(value)
+    if not normalized:
+        return None, None
+    if normalized.startswith("/"):
+        try:
+            prefix = int(normalized[1:])
+        except ValueError:
+            return None, normalized
+        if 0 <= prefix <= 32:
+            return prefix, cidr_to_mask(prefix)
+        return None, normalized
+    parts = normalized.split(".")
+    if len(parts) != 4:
+        return None, normalized
+    try:
+        bits = "".join(f"{int(part):08b}" for part in parts)
+    except ValueError:
+        return None, normalized
+    if "01" in bits:
+        return None, normalized
+    return bits.count("1"), normalized
+
+
+def redfish_set_ilo_network(root: str, auth: tuple[str, str], management: dict[str, Any]) -> dict[str, Any]:
+    ethernet_path = redfish_first_manager_ethernet(root, auth)
+    ip = string_value(management.get("ip"))
+    if not ip:
+        raise RuntimeError("management.ip is required")
+
+    _, subnet_mask = subnet_to_prefix_or_mask(string_value(management.get("subnet")))
+    ipv4: dict[str, Any] = {"Address": ip}
+    if subnet_mask:
+        ipv4["SubnetMask"] = subnet_mask
+    gateway = string_value(management.get("gateway"))
+    if gateway:
+        ipv4["Gateway"] = gateway
+
+    request: dict[str, Any] = {
+        "DHCPv4": {"DHCPEnabled": False},
+        "IPv4StaticAddresses": [ipv4],
+    }
+
+    dns = string_value(management.get("dns"))
+    if dns:
+        request["StaticNameServers"] = [server.strip() for server in dns.split(",") if server.strip()]
+
+    vlan = string_value(management.get("vlan")) or "0"
+    if vlan == "0":
+        request["VLAN"] = {"VLANEnable": False}
+    else:
+        try:
+            vlan_id = int(vlan)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid VLAN ID: {vlan}") from exc
+        request["VLAN"] = {"VLANEnable": True, "VLANId": vlan_id}
+
+    redfish_request(root, ethernet_path, method="PATCH", payload=request, auth=auth)
+    safe_management = {key: value for key, value in management.items() if "password" not in key.lower()}
+    return {"backend": "redfish", "endpoint": root, "ethernet_interface": ethernet_path, "management": safe_management}
+
+
+def run_redfish_action(
+    payload: dict[str, Any],
+    config: dict[str, str],
+    handler: Any,
+) -> dict[str, Any]:
+    auth = redfish_auth(payload)
+    if auth is None:
+        raise RuntimeError("iLO admin credentials are required for Redfish")
+
+    errors: list[str] = []
+    for root in redfish_roots(payload, config):
+        try:
+            redfish_request(root, "/redfish/v1/", auth=auth)
+            return handler(root, auth)
+        except RuntimeError as exc:
+            errors.append(str(exc))
+    raise RuntimeError("; ".join(errors) or "No Redfish endpoints were available")
+
+
 def run_hponcfg(xml_content: bytes) -> dict[str, Any]:
     executable = hponcfg_path()
     if executable is None:
@@ -565,7 +745,21 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
         password = string_value(payload.get("password"))
         if not username or not password:
             raise RuntimeError("username and password are required")
+
+        redfish_error = None
+        if redfish_auth(payload):
+            try:
+                return run_redfish_action(
+                    payload,
+                    config,
+                    lambda root, auth: redfish_create_ilo_user(root, auth, username, password),
+                )
+            except RuntimeError as exc:
+                redfish_error = str(exc)
+
         result = run_hponcfg(build_hponcfg_create_user_xml(username, password))
+        if redfish_error:
+            result["redfish_error"] = redfish_error
         return {**result, "username": username}
 
     if action_type == "hpe_set_ilo_network":
@@ -574,7 +768,21 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
             raise RuntimeError("management payload is invalid")
         if not string_value(management.get("ip")):
             raise RuntimeError("management.ip is required")
+
+        redfish_error = None
+        if redfish_auth(payload):
+            try:
+                return run_redfish_action(
+                    payload,
+                    config,
+                    lambda root, auth: redfish_set_ilo_network(root, auth, management),
+                )
+            except RuntimeError as exc:
+                redfish_error = str(exc)
+
         result = run_hponcfg(build_hponcfg_network_xml(management))
+        if redfish_error:
+            result["redfish_error"] = redfish_error
         return {**result, "management": {key: value for key, value in management.items() if key != "password"}}
 
     raise RuntimeError(f"Unsupported action type: {action_type}")

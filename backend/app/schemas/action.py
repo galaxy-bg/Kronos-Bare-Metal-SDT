@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field, field_validator
 class IloUserActionRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
+    admin_username: str | None = Field(default=None, max_length=64)
+    admin_password: str | None = Field(default=None, max_length=128)
 
     @field_validator("username", "password")
     @classmethod
@@ -16,6 +18,14 @@ class IloUserActionRequest(BaseModel):
             raise ValueError("Value cannot be empty")
         return stripped
 
+    @field_validator("admin_username", "admin_password")
+    @classmethod
+    def strip_optional(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
 
 class IloNetworkActionRequest(BaseModel):
     ip: str = Field(min_length=1, max_length=64)
@@ -24,6 +34,8 @@ class IloNetworkActionRequest(BaseModel):
     dns: str | None = Field(default=None, max_length=255)
     ntp: str | None = Field(default=None, max_length=255)
     vlan: str | None = Field(default="0", max_length=32)
+    admin_username: str | None = Field(default=None, max_length=64)
+    admin_password: str | None = Field(default=None, max_length=128)
 
     @field_validator("ip")
     @classmethod
@@ -33,7 +45,7 @@ class IloNetworkActionRequest(BaseModel):
             raise ValueError("IP cannot be empty")
         return stripped
 
-    @field_validator("subnet", "gateway", "dns", "ntp", "vlan")
+    @field_validator("subnet", "gateway", "dns", "ntp", "vlan", "admin_username", "admin_password")
     @classmethod
     def strip_optional(cls, value: str | None) -> str | None:
         if value is None:

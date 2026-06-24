@@ -207,9 +207,17 @@ export function DashboardPage() {
   const [managementIpOpen, setManagementIpOpen] = useState(false);
   const [iloUserOpen, setIloUserOpen] = useState(false);
   const [managementConfig, setManagementConfig] = useState<ManagementConfig>({});
-  const [iloUserForm, setIloUserForm] = useState({ username: 'hpadmin', password: '', confirmPassword: '' });
+  const [iloUserForm, setIloUserForm] = useState({
+    username: 'hpadmin',
+    password: '',
+    confirmPassword: '',
+    adminUsername: 'Administrator',
+    adminPassword: '',
+  });
   const [showIloPassword, setShowIloPassword] = useState(false);
   const [showIloConfirmPassword, setShowIloConfirmPassword] = useState(false);
+  const [showIloAdminPassword, setShowIloAdminPassword] = useState(false);
+  const [showNetworkAdminPassword, setShowNetworkAdminPassword] = useState(false);
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -304,16 +312,20 @@ export function DashboardPage() {
       ...(selectedServer.management_config_json ?? {}),
       ip: selectedServer.management_config_json?.ip ?? selectedServer.bmc_ip ?? '',
       vlan: selectedServer.management_config_json?.vlan ?? '0',
+      admin_username: 'Administrator',
+      admin_password: '',
     });
+    setShowNetworkAdminPassword(false);
     setManagementIpOpen(true);
     closeMenu();
   }
 
   function openIloUser() {
     if (!selectedServer) return;
-    setIloUserForm({ username: 'hpadmin', password: '', confirmPassword: '' });
+    setIloUserForm({ username: 'hpadmin', password: '', confirmPassword: '', adminUsername: 'Administrator', adminPassword: '' });
     setShowIloPassword(false);
     setShowIloConfirmPassword(false);
+    setShowIloAdminPassword(false);
     setIloUserOpen(true);
     closeMenu();
   }
@@ -327,9 +339,10 @@ export function DashboardPage() {
   function closeIloUser() {
     setIloUserOpen(false);
     setSelectedServer(null);
-    setIloUserForm({ username: 'hpadmin', password: '', confirmPassword: '' });
+    setIloUserForm({ username: 'hpadmin', password: '', confirmPassword: '', adminUsername: 'Administrator', adminPassword: '' });
     setShowIloPassword(false);
     setShowIloConfirmPassword(false);
+    setShowIloAdminPassword(false);
   }
 
   async function saveManagementIp() {
@@ -343,6 +356,8 @@ export function DashboardPage() {
         dns: managementConfig.dns?.trim() || null,
         ntp: managementConfig.ntp?.trim() || null,
         vlan: managementConfig.vlan?.trim() || '0',
+        admin_username: managementConfig.admin_username?.trim() || null,
+        admin_password: managementConfig.admin_password?.trim() || null,
       };
       if (!normalizedConfig.ip) {
         setError('iLO IP is required.');
@@ -363,6 +378,8 @@ export function DashboardPage() {
     const username = iloUserForm.username.trim();
     const password = iloUserForm.password.trim();
     const confirmPassword = iloUserForm.confirmPassword.trim();
+    const adminUsername = iloUserForm.adminUsername.trim();
+    const adminPassword = iloUserForm.adminPassword.trim();
     if (!username || !password) {
       setError('iLO username and password are required.');
       return;
@@ -374,7 +391,12 @@ export function DashboardPage() {
 
     setSaving(true);
     try {
-      await createIloUserAction(selectedServer.id, { username, password });
+      await createIloUserAction(selectedServer.id, {
+        username,
+        password,
+        admin_username: adminUsername || null,
+        admin_password: adminPassword || null,
+      });
       await load();
       closeIloUser();
     } catch {
@@ -876,6 +898,35 @@ export function DashboardPage() {
                   onChange={(event) => setManagementConfig({ ...managementConfig, vlan: event.target.value })}
                 />
               </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Admin Username"
+                  placeholder="Administrator"
+                  value={managementConfig.admin_username ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, admin_username: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Admin Password"
+                  type={showNetworkAdminPassword ? 'text' : 'password'}
+                  value={managementConfig.admin_password ?? ''}
+                  onChange={(event) => setManagementConfig({ ...managementConfig, admin_password: event.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title={showNetworkAdminPassword ? 'Hide password' : 'Show password'} arrow>
+                          <IconButton size="small" onClick={() => setShowNetworkAdminPassword((current) => !current)} edge="end">
+                            {showNetworkAdminPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
             </Grid>
           </Stack>
         </DialogContent>
@@ -894,16 +945,46 @@ export function DashboardPage() {
             <Typography color="text.secondary">
               {selectedServer?.hostname ?? selectedServer?.serial_number}
             </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Admin Username"
+                  value={iloUserForm.adminUsername}
+                  onChange={(event) => setIloUserForm({ ...iloUserForm, adminUsername: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Admin Password"
+                  type={showIloAdminPassword ? 'text' : 'password'}
+                  value={iloUserForm.adminPassword}
+                  onChange={(event) => setIloUserForm({ ...iloUserForm, adminPassword: event.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title={showIloAdminPassword ? 'Hide password' : 'Show password'} arrow>
+                          <IconButton size="small" onClick={() => setShowIloAdminPassword((current) => !current)} edge="end">
+                            {showIloAdminPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            </Grid>
             <TextField
               autoFocus
               fullWidth
-              label="Username"
+              label="New iLO Username"
               value={iloUserForm.username}
               onChange={(event) => setIloUserForm({ ...iloUserForm, username: event.target.value })}
             />
             <TextField
               fullWidth
-              label="Password"
+              label="New iLO Password"
               type={showIloPassword ? 'text' : 'password'}
               value={iloUserForm.password}
               onChange={(event) => setIloUserForm({ ...iloUserForm, password: event.target.value })}

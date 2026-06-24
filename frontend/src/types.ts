@@ -5,11 +5,15 @@ export type ManagementConfig = {
   dns?: string | null;
   ntp?: string | null;
   vlan?: string | null;
+  admin_username?: string | null;
+  admin_password?: string | null;
 };
 
 export type IloUserActionPayload = {
   username: string;
   password: string;
+  admin_username?: string | null;
+  admin_password?: string | null;
 };
 
 export type ServerAction = {

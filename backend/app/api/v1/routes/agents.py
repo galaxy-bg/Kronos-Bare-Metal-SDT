@@ -14,6 +14,20 @@ from app.schemas.server import ServerRead
 router = APIRouter()
 
 
+def mask_secret_fields(value: object) -> object:
+    if isinstance(value, dict):
+        masked: dict[str, object] = {}
+        for key, item in value.items():
+            if "password" in key.lower():
+                masked[key] = "********"
+            else:
+                masked[key] = mask_secret_fields(item)
+        return masked
+    if isinstance(value, list):
+        return [mask_secret_fields(item) for item in value]
+    return value
+
+
 def default_hostname(serial_number: str) -> str:
     return f"iLO-{serial_number}"
 
@@ -129,6 +143,7 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
     action.result_json = payload.result
     action.error_message = payload.error
     action.completed_at = datetime.now(UTC)
+    action.payload_json = mask_secret_fields(action.payload_json)
 
     if action.action_type == "hpe_set_ilo_network" and payload.status == "succeeded":
         management = action.payload_json.get("management", {})
