@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -12,10 +12,13 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import KeyIcon from '@mui/icons-material/Key';
+import SensorsIcon from '@mui/icons-material/Sensors';
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import type { IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { useParams } from 'react-router-dom';
 import { fetchIloEnrollment, submitIloEnrollment } from '../api/client';
@@ -41,6 +44,10 @@ function guessPassword(values: string[]) {
     if (tokenMatch?.[0]) return tokenMatch[0];
   }
   return '';
+}
+
+function pickDnsName(values: string[]) {
+  return values.find((value) => value.trim().toUpperCase().startsWith('ILO')) ?? '';
 }
 
 function loadImage(file: File) {
@@ -111,19 +118,45 @@ function makeCanvas(
   return options?.enhance ? enhanceCanvas(canvas) : canvas;
 }
 
+function scanCrops(width: number, height: number): Array<{ x: number; y: number; width: number; height: number } | undefined> {
+  return [
+    undefined,
+    { x: 0, y: 0, width, height: Math.round(height * 0.5) },
+    { x: 0, y: Math.round(height * 0.25), width, height: Math.round(height * 0.5) },
+    { x: 0, y: Math.round(height * 0.38), width, height: Math.round(height * 0.28) },
+    { x: 0, y: Math.round(height * 0.48), width, height: Math.round(height * 0.24) },
+    { x: 0, y: Math.round(height * 0.45), width, height: Math.round(height * 0.55) },
+    { x: 0, y: Math.round(height * 0.62), width, height: Math.round(height * 0.38) },
+    { x: Math.round(width * 0.05), y: Math.round(height * 0.05), width: Math.round(width * 0.9), height: Math.round(height * 0.9) },
+  ];
+}
+
 async function detectWithNativeBarcodeDetector(file: File) {
   const detectorType = (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
   if (!detectorType) return [];
 
-  const bitmap = await createImageBitmap(file);
+  const image = await loadImage(file);
   const detector = new detectorType({
     formats: ['code_128', 'code_39', 'code_93', 'codabar', 'data_matrix', 'itf', 'qr_code'],
   });
-  try {
-    return (await detector.detect(bitmap)).map((barcode) => barcode.rawValue);
-  } finally {
-    bitmap.close();
+  const values: string[] = [];
+  const rotations: Array<0 | 90 | 180 | 270> = [0, 90, 270, 180];
+
+  for (const crop of scanCrops(image.naturalWidth, image.naturalHeight)) {
+    for (const rotation of rotations) {
+      for (const enhance of [false, true]) {
+        try {
+          const canvas = makeCanvas(image, crop, { rotation, enhance });
+          values.push(...(await detector.detect(canvas)).map((barcode) => barcode.rawValue));
+          if (guessPassword(values)) return values;
+        } catch {
+          // Try the next crop/rotation; Android support differs by device and browser build.
+        }
+      }
+    }
   }
+
+  return values;
 }
 
 async function detectWithZxing(file: File) {
@@ -143,16 +176,7 @@ async function detectWithZxing(file: File) {
   const reader = new BrowserMultiFormatReader(hints);
   const width = image.naturalWidth;
   const height = image.naturalHeight;
-  const crops: Array<{ x: number; y: number; width: number; height: number } | undefined> = [
-    undefined,
-    { x: 0, y: 0, width, height: Math.round(height * 0.5) },
-    { x: 0, y: Math.round(height * 0.25), width, height: Math.round(height * 0.5) },
-    { x: 0, y: Math.round(height * 0.38), width, height: Math.round(height * 0.28) },
-    { x: 0, y: Math.round(height * 0.48), width, height: Math.round(height * 0.24) },
-    { x: 0, y: Math.round(height * 0.45), width, height: Math.round(height * 0.55) },
-    { x: 0, y: Math.round(height * 0.62), width, height: Math.round(height * 0.38) },
-    { x: Math.round(width * 0.05), y: Math.round(height * 0.05), width: Math.round(width * 0.9), height: Math.round(height * 0.9) },
-  ];
+  const crops = scanCrops(width, height);
   const rotations: Array<0 | 90 | 180 | 270> = [0, 90, 270, 180];
   const values: string[] = [];
 
@@ -182,9 +206,12 @@ export function IloEnrollmentPage() {
   const [detectedValues, setDetectedValues] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [liveScanning, setLiveScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
 
   const title = useMemo(() => info?.hostname ?? info?.serial_number ?? 'iLO Enrollment', [info]);
 
@@ -198,6 +225,13 @@ export function IloEnrollmentPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  useEffect(() => {
+    return () => {
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+    };
+  }, []);
+
   async function scanImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -205,14 +239,15 @@ export function IloEnrollmentPage() {
     setError(null);
     setSuccess(null);
     try {
-      const values = candidateValues([
-        ...(await detectWithZxing(file)),
-        ...(await detectWithNativeBarcodeDetector(file)),
-      ]);
+      const nativeValues = await detectWithNativeBarcodeDetector(file);
+      const values = candidateValues(guessPassword(nativeValues) ? nativeValues : [...nativeValues, ...(await detectWithZxing(file))]);
       setDetectedValues(values);
       const guessedPassword = guessPassword(values);
-      if (guessedPassword && !password) setPassword(guessedPassword);
-      const guessedDns = values.find((value) => value.toUpperCase().startsWith('ILO'));
+      if (guessedPassword) {
+        setPassword(guessedPassword);
+        setSuccess('Password barcode detected.');
+      }
+      const guessedDns = pickDnsName(values);
       if (guessedDns && !dnsName) setDnsName(guessedDns);
       if (values.length === 0) setError('No barcode was detected. Try a closer, well-lit photo of the iLO tag.');
     } catch {
@@ -221,6 +256,70 @@ export function IloEnrollmentPage() {
       setScanning(false);
       event.target.value = '';
     }
+  }
+
+  function applyDetectedValues(values: string[]) {
+    const detected = candidateValues(values);
+    setDetectedValues((current) => candidateValues([...detected, ...current]).slice(0, 8));
+
+    const guessedPassword = guessPassword(detected);
+    if (guessedPassword) {
+      setPassword(guessedPassword);
+      setSuccess('Password barcode detected.');
+      stopLiveScan();
+      return true;
+    }
+
+    const guessedDns = pickDnsName(detected);
+    if (guessedDns) setDnsName((current) => current || guessedDns);
+    return false;
+  }
+
+  async function startLiveScan() {
+    if (!videoRef.current) return;
+    setError(null);
+    setSuccess(null);
+    setDetectedValues([]);
+    setLiveScanning(true);
+
+    const hints = new Map<DecodeHintType, unknown>();
+    hints.set(DecodeHintType.TRY_HARDER, true);
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.CODE_93,
+      BarcodeFormat.CODABAR,
+      BarcodeFormat.DATA_MATRIX,
+      BarcodeFormat.ITF,
+      BarcodeFormat.QR_CODE,
+    ]);
+
+    try {
+      const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 120 });
+      scannerControlsRef.current = await reader.decodeFromConstraints(
+        {
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        },
+        videoRef.current,
+        (result) => {
+          if (!result) return;
+          applyDetectedValues([result.getText()]);
+        },
+      );
+    } catch {
+      setLiveScanning(false);
+      setError('Camera scanner could not be started. Check camera permission and try again.');
+    }
+  }
+
+  function stopLiveScan() {
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+    setLiveScanning(false);
   }
 
   async function submit() {
@@ -280,10 +379,55 @@ export function IloEnrollmentPage() {
             </Alert>
           )}
 
-          <Button component="label" variant="outlined" startIcon={<CameraAltIcon />} disabled={scanning || saving}>
-            {scanning ? 'Scanning...' : 'Scan Barcode'}
-            <input hidden accept="image/*" capture="environment" type="file" onChange={scanImage} />
-          </Button>
+          <Box
+            sx={{
+              display: liveScanning ? 'block' : 'none',
+              position: 'relative',
+              overflow: 'hidden',
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'divider',
+              bgcolor: 'common.black',
+              aspectRatio: '4 / 3',
+            }}
+          >
+            <Box
+              component="video"
+              ref={videoRef}
+              muted
+              playsInline
+              sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                left: '8%',
+                right: '8%',
+                top: '42%',
+                height: '16%',
+                border: '2px solid',
+                borderColor: 'primary.main',
+                borderRadius: 1,
+                boxShadow: '0 0 0 999px rgba(0,0,0,0.28)',
+              }}
+            />
+          </Box>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button
+              variant={liveScanning ? 'contained' : 'outlined'}
+              startIcon={liveScanning ? <CloseIcon /> : <SensorsIcon />}
+              disabled={saving}
+              onClick={liveScanning ? stopLiveScan : startLiveScan}
+              fullWidth
+            >
+              {liveScanning ? 'Stop Live Scan' : 'Live Scan Barcode'}
+            </Button>
+            <Button component="label" variant="outlined" startIcon={<CameraAltIcon />} disabled={scanning || saving} fullWidth>
+              {scanning ? 'Scanning...' : 'Scan Photo'}
+              <input hidden accept="image/*" capture="environment" type="file" onChange={scanImage} />
+            </Button>
+          </Stack>
 
           {detectedValues.length > 0 && (
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
