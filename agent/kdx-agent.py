@@ -69,6 +69,8 @@ def run(command: list[str], timeout: int = 10) -> str:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -297,6 +299,8 @@ def discover_hpe_bmc_with_hponcfg() -> dict[str, Any]:
             [executable, "-w", xml_path],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             check=False,
         )
@@ -530,6 +534,8 @@ def run_hponcfg(xml_content: bytes) -> dict[str, Any]:
             [executable, "-f", xml_path],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             check=False,
         )
