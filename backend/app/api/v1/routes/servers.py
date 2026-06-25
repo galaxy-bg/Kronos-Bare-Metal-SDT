@@ -154,10 +154,28 @@ def refresh_server_statuses(db: Session) -> None:
         db.commit()
 
 
+def preferred_ilo_auth(server: Server, admin_username: str | None, admin_password: str | None) -> tuple[str | None, str | None]:
+    config = server.management_config_json or {}
+    managed_user = config.get("managed_user")
+    credential = config.get("credential")
+    auth_username = admin_username
+    auth_password = admin_password
+
+    if isinstance(managed_user, dict) and managed_user.get("username") and managed_user.get("password"):
+        auth_username = auth_username or managed_user.get("username")
+        auth_password = auth_password or managed_user.get("password")
+
+    if isinstance(credential, dict):
+        auth_username = auth_username or credential.get("username")
+        auth_password = auth_password or credential.get("password")
+
+    return auth_username, auth_password
+
+
 @router.get("", response_model=list[ServerRead])
 def list_servers(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     refresh_server_statuses(db)
-    servers = db.scalars(select(Server).options(selectinload(Server.inventories)).order_by(desc(Server.last_seen))).all()
+    servers = db.scalars(select(Server).options(selectinload(Server.inventories)).order_by(Server.serial_number)).all()
     return [server_to_read(server) for server in servers]
 
 
@@ -240,7 +258,12 @@ def submit_ilo_enrollment(token: str, payload: IloEnrollmentSubmit, db: Session 
     if server is None or server.serial_number != token_payload.get("serial_number"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
-    if payload.create_managed_user and payload.username != DEFAULT_MANAGED_ILO_USER:
+    existing_managed_user = (server.management_config_json or {}).get("managed_user")
+    has_managed_user = isinstance(existing_managed_user, dict) and bool(
+        existing_managed_user.get("username") and existing_managed_user.get("password")
+    )
+
+    if payload.create_managed_user and payload.username != DEFAULT_MANAGED_ILO_USER and not has_managed_user:
         action = ServerAction(
             server_id=server.id,
             action_type="hpe_create_ilo_user",
@@ -254,6 +277,7 @@ def submit_ilo_enrollment(token: str, payload: IloEnrollmentSubmit, db: Session 
             },
         )
     else:
+        should_create_managed_user = payload.create_managed_user and not has_managed_user
         action = ServerAction(
             server_id=server.id,
             action_type="hpe_verify_ilo_credential",
@@ -261,7 +285,7 @@ def submit_ilo_enrollment(token: str, payload: IloEnrollmentSubmit, db: Session 
                 "auth": {"username": payload.username, "password": payload.password},
                 "dns_name": payload.dns_name,
                 "source": "ilo-tag-scan",
-                "create_managed_user": payload.create_managed_user,
+                "create_managed_user": should_create_managed_user,
             },
         )
     db.add(action)
@@ -336,12 +360,7 @@ def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Se
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
-    credential = (server.management_config_json or {}).get("credential")
-    auth_username = payload.admin_username
-    auth_password = payload.admin_password
-    if isinstance(credential, dict):
-        auth_username = auth_username or credential.get("username")
-        auth_password = auth_password or credential.get("password")
+    auth_username, auth_password = preferred_ilo_auth(server, payload.admin_username, payload.admin_password)
 
     action = ServerAction(
         server_id=server.id,
@@ -368,12 +387,7 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
-    credential = (server.management_config_json or {}).get("credential")
-    auth_username = payload.admin_username
-    auth_password = payload.admin_password
-    if isinstance(credential, dict):
-        auth_username = auth_username or credential.get("username")
-        auth_password = auth_password or credential.get("password")
+    auth_username, auth_password = preferred_ilo_auth(server, payload.admin_username, payload.admin_password)
 
     management_config = {
         "ip": payload.ip,

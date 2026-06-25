@@ -26,6 +26,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography,
@@ -99,9 +100,45 @@ function managedUserFor(server: ServerSummary) {
   return server.management_config_json?.managed_user ?? null;
 }
 
+function actionCredentialFor(server: ServerSummary) {
+  const managedUser = managedUserFor(server);
+  if (managedUser?.username && managedUser?.password) {
+    return managedUser;
+  }
+  return credentialFor(server);
+}
+
 function networkInterfacesFor(server: ServerSummary) {
   const network = server.latest_inventory_json?.network;
   return Array.isArray(network) ? network.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : [];
+}
+
+type ServerSortKey =
+  | 'hostname'
+  | 'vendor'
+  | 'model'
+  | 'serial_number'
+  | 'agent_ip'
+  | 'bmc_ip'
+  | 'status'
+  | 'last_seen';
+
+type SortDirection = 'asc' | 'desc';
+
+function serverSortValue(server: ServerSummary, key: ServerSortKey) {
+  if (key === 'last_seen') return new Date(server.last_seen).getTime();
+  return String(server[key] ?? '').toLowerCase();
+}
+
+function sortServers(servers: ServerSummary[], key: ServerSortKey, direction: SortDirection) {
+  const multiplier = direction === 'asc' ? 1 : -1;
+  return [...servers].sort((left, right) => {
+    const leftValue = serverSortValue(left, key);
+    const rightValue = serverSortValue(right, key);
+    if (leftValue < rightValue) return -1 * multiplier;
+    if (leftValue > rightValue) return 1 * multiplier;
+    return String(left.serial_number).localeCompare(String(right.serial_number));
+  });
 }
 
 function actionLabel(actionType: string) {
@@ -253,9 +290,11 @@ export function DashboardPage() {
   const [tasksOpen, setTasksOpen] = useState(true);
   const [includeReportPasswords, setIncludeReportPasswords] = useState(false);
   const [includeReportNicMacs, setIncludeReportNicMacs] = useState(true);
+  const [sortKey, setSortKey] = useState<ServerSortKey>('serial_number');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const normalizedFilter = filterText.trim().toLowerCase();
-  const filteredServers = servers.filter((server) => {
+  const filteredServers = sortServers(servers.filter((server) => {
     const matchesStatus = statusFilter === 'all' || server.status === statusFilter;
     const searchable = [
       server.hostname,
@@ -271,7 +310,7 @@ export function DashboardPage() {
       .join(' ')
       .toLowerCase();
     return matchesStatus && (!normalizedFilter || searchable.includes(normalizedFilter));
-  });
+  }), sortKey, sortDirection);
   const selectedVisibleIds = filteredServers.filter((server) => selectedIds.includes(server.id)).map((server) => server.id);
   const allVisibleSelected = filteredServers.length > 0 && selectedVisibleIds.length === filteredServers.length;
   const partiallyVisibleSelected = selectedVisibleIds.length > 0 && selectedVisibleIds.length < filteredServers.length;
@@ -347,12 +386,12 @@ export function DashboardPage() {
 
   function openManagementIp() {
     if (!selectedServer) return;
-    const credential = credentialFor(selectedServer);
+    const credential = actionCredentialFor(selectedServer);
     setManagementConfig({
       ...(selectedServer.management_config_json ?? {}),
       ip: selectedServer.management_config_json?.ip ?? selectedServer.bmc_ip ?? '',
       vlan: selectedServer.management_config_json?.vlan ?? '0',
-      admin_username: credential?.username ?? 'Administrator',
+      admin_username: credential?.username ?? 'hpadmin',
       admin_password: credential?.password ?? '',
     });
     setShowNetworkAdminPassword(false);
@@ -362,12 +401,13 @@ export function DashboardPage() {
 
   function openIloUser() {
     if (!selectedServer) return;
-    const credential = credentialFor(selectedServer);
+    const credential = actionCredentialFor(selectedServer);
+    const hasManagedUser = Boolean(selectedServer.management_config_json?.managed_user?.username);
     setIloUserForm({
-      username: selectedServer.management_config_json?.managed_user?.username ?? 'hpadmin',
-      password: '',
-      confirmPassword: '',
-      adminUsername: credential?.username ?? 'Administrator',
+      username: hasManagedUser ? '' : 'hpadmin',
+      password: hasManagedUser ? '' : 'HP1nv3nt',
+      confirmPassword: hasManagedUser ? '' : 'HP1nv3nt',
+      adminUsername: credential?.username ?? 'hpadmin',
       adminPassword: credential?.password ?? '',
     });
     setShowIloPassword(false);
@@ -527,6 +567,27 @@ export function DashboardPage() {
   function clearFilters() {
     setFilterText('');
     setStatusFilter('all');
+  }
+
+  function changeSort(key: ServerSortKey) {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection(key === 'last_seen' ? 'desc' : 'asc');
+  }
+
+  function sortableHeader(label: string, key: ServerSortKey) {
+    return (
+      <TableSortLabel
+        active={sortKey === key}
+        direction={sortKey === key ? sortDirection : 'asc'}
+        onClick={() => changeSort(key)}
+      >
+        {label}
+      </TableSortLabel>
+    );
   }
 
   async function removeSelectedServers() {
@@ -768,14 +829,14 @@ export function DashboardPage() {
                     inputProps={{ 'aria-label': 'Select visible servers' }}
                   />
                 </TableCell>
-                <TableCell>Hostname</TableCell>
-                <TableCell>Vendor</TableCell>
-                <TableCell>Model</TableCell>
-                <TableCell>Serial Number</TableCell>
-                <TableCell>Agent IP</TableCell>
-                <TableCell>iLO / iDRAC / IPMI IP</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Last Seen</TableCell>
+                <TableCell>{sortableHeader('Hostname', 'hostname')}</TableCell>
+                <TableCell>{sortableHeader('Vendor', 'vendor')}</TableCell>
+                <TableCell>{sortableHeader('Model', 'model')}</TableCell>
+                <TableCell>{sortableHeader('Serial Number', 'serial_number')}</TableCell>
+                <TableCell>{sortableHeader('Agent IP', 'agent_ip')}</TableCell>
+                <TableCell>{sortableHeader('iLO / iDRAC / IPMI IP', 'bmc_ip')}</TableCell>
+                <TableCell>{sortableHeader('Status', 'status')}</TableCell>
+                <TableCell>{sortableHeader('Last Seen', 'last_seen')}</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
