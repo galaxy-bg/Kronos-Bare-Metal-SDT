@@ -11,6 +11,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   Grid,
   IconButton,
   InputAdornment,
@@ -30,6 +31,7 @@ import {
   Typography,
 } from '@mui/material';
 import CancelIcon from '@mui/icons-material/Cancel';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ClearIcon from '@mui/icons-material/Clear';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -83,6 +85,23 @@ function formatDate(value: string) {
 
 function formatOptionalDate(value: string | null) {
   return value ? formatDate(value) : '-';
+}
+
+function csvValue(value: unknown) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function credentialFor(server: ServerSummary) {
+  return server.management_config_json?.credential ?? null;
+}
+
+function managedUserFor(server: ServerSummary) {
+  return server.management_config_json?.managed_user ?? null;
+}
+
+function networkInterfacesFor(server: ServerSummary) {
+  const network = server.latest_inventory_json?.network;
+  return Array.isArray(network) ? network.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : [];
 }
 
 function actionLabel(actionType: string) {
@@ -232,6 +251,8 @@ export function DashboardPage() {
   const [filterText, setFilterText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [tasksOpen, setTasksOpen] = useState(true);
+  const [includeReportPasswords, setIncludeReportPasswords] = useState(false);
+  const [includeReportNicMacs, setIncludeReportNicMacs] = useState(true);
 
   const normalizedFilter = filterText.trim().toLowerCase();
   const filteredServers = servers.filter((server) => {
@@ -326,12 +347,13 @@ export function DashboardPage() {
 
   function openManagementIp() {
     if (!selectedServer) return;
+    const credential = credentialFor(selectedServer);
     setManagementConfig({
       ...(selectedServer.management_config_json ?? {}),
       ip: selectedServer.management_config_json?.ip ?? selectedServer.bmc_ip ?? '',
       vlan: selectedServer.management_config_json?.vlan ?? '0',
-      admin_username: 'Administrator',
-      admin_password: '',
+      admin_username: credential?.username ?? 'Administrator',
+      admin_password: credential?.password ?? '',
     });
     setShowNetworkAdminPassword(false);
     setManagementIpOpen(true);
@@ -340,7 +362,14 @@ export function DashboardPage() {
 
   function openIloUser() {
     if (!selectedServer) return;
-    setIloUserForm({ username: 'hpadmin', password: '', confirmPassword: '', adminUsername: 'Administrator', adminPassword: '' });
+    const credential = credentialFor(selectedServer);
+    setIloUserForm({
+      username: selectedServer.management_config_json?.managed_user?.username ?? 'hpadmin',
+      password: '',
+      confirmPassword: '',
+      adminUsername: credential?.username ?? 'Administrator',
+      adminPassword: credential?.password ?? '',
+    });
     setShowIloPassword(false);
     setShowIloConfirmPassword(false);
     setShowIloAdminPassword(false);
@@ -522,20 +551,63 @@ export function DashboardPage() {
   }
 
   function exportCsv() {
-    const header = ['Hostname', 'Vendor', 'Model', 'Serial Number', 'Agent IP', 'iLO / iDRAC / IPMI IP', 'Status', 'Last Seen'];
-    const rows = filteredServers.map((server) => [
-      server.hostname ?? '',
-      server.vendor ?? '',
-      server.model ?? '',
-      server.serial_number,
-      server.agent_ip ?? '',
-      server.bmc_ip ?? '',
-      server.status,
-      server.last_seen,
-    ]);
-    const csv = [header, ...rows]
-      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+    const baseHeader = [
+      'Hostname',
+      'Vendor',
+      'Model',
+      'Product ID',
+      'Serial Number',
+      'Agent IP',
+      'iLO / iDRAC / IPMI IP',
+      'iLO DNS Name',
+      'iLO Credential Validated',
+      'iLO Credential Validated At',
+      'Administrator Username',
+      'Managed iLO Username',
+      'Managed iLO User Created',
+      'Status',
+      'Last Seen',
+    ];
+    const passwordHeader = ['Administrator Password', 'Managed iLO Password'];
+    const nicHeader = ['NIC Interfaces', 'NIC MAC Addresses'];
+    const header = [
+      ...baseHeader,
+      ...(includeReportPasswords ? passwordHeader : []),
+      ...(includeReportNicMacs ? nicHeader : []),
+    ];
+    const rows = filteredServers.map((server) => {
+      const credential = credentialFor(server);
+      const managedUser = managedUserFor(server);
+      const interfaces = networkInterfacesFor(server);
+      const baseRow = [
+        server.hostname ?? '',
+        server.vendor ?? '',
+        server.model ?? '',
+        server.product_name ?? '',
+        server.serial_number,
+        server.agent_ip ?? '',
+        server.bmc_ip ?? '',
+        server.management_config_json?.dns_name ?? '',
+        credential?.verified ? 'yes' : 'no',
+        credential?.verified_at ?? '',
+        credential?.username ?? '',
+        managedUser?.username ?? '',
+        managedUser?.created ? 'yes' : 'no',
+        server.status,
+        server.last_seen,
+      ];
+      const passwordRow = [credential?.password ?? '', managedUser?.password ?? ''];
+      const nicRow = [
+        interfaces.map((item) => item.name).filter(Boolean).join('; '),
+        interfaces.map((item) => item.mac).filter(Boolean).join('; '),
+      ];
+      return [
+        ...baseRow,
+        ...(includeReportPasswords ? passwordRow : []),
+        ...(includeReportNicMacs ? nicRow : []),
+      ];
+    });
+    const csv = [header, ...rows].map((row) => row.map(csvValue).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -593,6 +665,34 @@ export function DashboardPage() {
         </Grid>
       </Grid>
 
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderColor: 'divider', bgcolor: '#ffffff' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: { md: 260 } }}>
+            <AssessmentIcon sx={{ color: 'primary.main' }} />
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+                Deployment Report
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Export customer handover data for the filtered servers.
+              </Typography>
+            </Box>
+          </Stack>
+          <FormControlLabel
+            control={<Checkbox checked={includeReportNicMacs} onChange={(event) => setIncludeReportNicMacs(event.target.checked)} />}
+            label="Include NIC MAC addresses"
+          />
+          <FormControlLabel
+            control={<Checkbox checked={includeReportPasswords} onChange={(event) => setIncludeReportPasswords(event.target.checked)} />}
+            label="Include iLO passwords"
+          />
+          <Box sx={{ flex: 1 }} />
+          <Button startIcon={<DownloadIcon />} variant="contained" onClick={exportCsv} disabled={filteredServers.length === 0}>
+            Export Report CSV
+          </Button>
+        </Stack>
+      </Paper>
+
       <Paper variant="outlined" sx={{ overflow: 'hidden', borderColor: 'divider' }}>
         <Box sx={{ px: { xs: 2, md: 2.5 }, py: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#ffffff' }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
@@ -602,9 +702,6 @@ export function DashboardPage() {
             <Stack direction="row" spacing={1}>
               <Button startIcon={<RefreshIcon />} size="small" variant="outlined" onClick={load}>
                 Refresh
-              </Button>
-              <Button startIcon={<DownloadIcon />} size="small" variant="contained" onClick={exportCsv} disabled={filteredServers.length === 0}>
-                Export CSV
               </Button>
             </Stack>
           </Stack>

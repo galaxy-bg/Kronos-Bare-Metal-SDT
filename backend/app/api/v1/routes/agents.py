@@ -37,6 +37,14 @@ def update_if_known(server: Server, field_name: str, value: str | None) -> None:
         setattr(server, field_name, value)
 
 
+def merged_management_config(server: Server) -> dict:
+    return dict(server.management_config_json or {})
+
+
+def compact_management_config(value: dict) -> dict:
+    return {key: item for key, item in value.items() if item is not None}
+
+
 @router.post("/register", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
 def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) -> Server:
     now = datetime.now(UTC)
@@ -97,6 +105,14 @@ def upload_inventory(payload: InventoryUpload, db: Session = Depends(get_db)) ->
     inventory = Inventory(server_id=server.id, inventory_json=payload.inventory)
     server.status = "online"
     server.last_seen = datetime.now(UTC)
+    system = payload.inventory.get("system") if isinstance(payload.inventory, dict) else None
+    if isinstance(system, dict):
+        update_if_known(server, "vendor", system.get("vendor"))
+        update_if_known(server, "model", system.get("model"))
+        update_if_known(server, "product_name", system.get("product_name"))
+        bmc = payload.inventory.get("bmc")
+        if isinstance(bmc, dict):
+            update_if_known(server, "bmc_ip", bmc.get("ip"))
 
     db.add(inventory)
     db.commit()
@@ -139,6 +155,7 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
     if payload.status not in {"succeeded", "failed"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action status")
 
+    original_payload = action.payload_json
     action.status = payload.status
     action.result_json = payload.result
     action.error_message = payload.error
@@ -146,21 +163,63 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
     action.payload_json = mask_secret_fields(action.payload_json)
 
     if action.action_type == "hpe_set_ilo_network" and payload.status == "succeeded":
-        management = action.payload_json.get("management", {})
+        management = original_payload.get("management", {})
         if isinstance(management, dict):
             ip = management.get("ip")
             if ip:
                 server.bmc_ip = str(ip)
-            server.management_config_json = management
+            current = merged_management_config(server)
+            current.update(management)
+            server.management_config_json = compact_management_config(current)
 
     if action.action_type == "hpe_verify_ilo_credential" and payload.status == "succeeded":
         result = payload.result or {}
         bmc = result.get("bmc") if isinstance(result, dict) else None
+        current = merged_management_config(server)
         if isinstance(bmc, dict):
             ip = bmc.get("ip")
             if ip:
                 server.bmc_ip = str(ip)
-            server.management_config_json = bmc
+            current.update(bmc)
+        auth = original_payload.get("auth") if isinstance(original_payload, dict) else None
+        if isinstance(auth, dict):
+            current["credential"] = compact_management_config(
+                {
+                    "username": auth.get("username"),
+                    "password": auth.get("password"),
+                    "verified": True,
+                    "verified_at": action.completed_at.isoformat() if action.completed_at else None,
+                    "source": original_payload.get("source"),
+                }
+            )
+        dns_name = original_payload.get("dns_name") if isinstance(original_payload, dict) else None
+        if dns_name:
+            current["dns_name"] = dns_name
+        managed_user = result.get("managed_user") if isinstance(result, dict) else None
+        if isinstance(managed_user, dict) and managed_user.get("created"):
+            current["managed_user"] = compact_management_config(
+                {
+                    "username": managed_user.get("username"),
+                    "password": managed_user.get("password"),
+                    "created": True,
+                    "created_at": action.completed_at.isoformat() if action.completed_at else None,
+                    "source": "verify-credential",
+                }
+            )
+        server.management_config_json = compact_management_config(current)
+
+    if action.action_type == "hpe_create_ilo_user" and payload.status == "succeeded":
+        current = merged_management_config(server)
+        current["managed_user"] = compact_management_config(
+            {
+                "username": original_payload.get("username") if isinstance(original_payload, dict) else None,
+                "password": original_payload.get("password") if isinstance(original_payload, dict) else None,
+                "created": True,
+                "created_at": action.completed_at.isoformat() if action.completed_at else None,
+                "source": "create-user-action",
+            }
+        )
+        server.management_config_json = compact_management_config(current)
 
     db.commit()
     return {"status": "stored"}

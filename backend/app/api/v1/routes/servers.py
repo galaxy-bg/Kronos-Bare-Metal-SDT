@@ -115,6 +115,7 @@ def ping_ip(ip_address: str | None) -> bool | None:
 
 
 def server_to_read(server: Server) -> dict[str, Any]:
+    latest_inventory = server.inventories[0].inventory_json if server.inventories else None
     return {
         "id": server.id,
         "uuid": server.uuid,
@@ -126,6 +127,7 @@ def server_to_read(server: Server) -> dict[str, Any]:
         "agent_ip": server.agent_ip,
         "bmc_ip": server.bmc_ip,
         "management_config_json": server.management_config_json,
+        "latest_inventory_json": latest_inventory,
         "agent_reachable": ping_ip(server.agent_ip),
         "bmc_reachable": ping_ip(server.bmc_ip),
         "status": server.status,
@@ -153,7 +155,7 @@ def refresh_server_statuses(db: Session) -> None:
 @router.get("", response_model=list[ServerRead])
 def list_servers(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     refresh_server_statuses(db)
-    servers = db.scalars(select(Server).order_by(desc(Server.last_seen))).all()
+    servers = db.scalars(select(Server).options(selectinload(Server.inventories)).order_by(desc(Server.last_seen))).all()
     return [server_to_read(server) for server in servers]
 
 
@@ -304,7 +306,7 @@ def action_to_read(action: ServerAction) -> dict[str, Any]:
         "action_type": action.action_type,
         "status": action.status,
         "payload_json": mask_action_payload(action.action_type, action.payload_json),
-        "result_json": action.result_json,
+        "result_json": mask_secret_fields(action.result_json),
         "error_message": action.error_message,
         "requested_at": action.requested_at,
         "started_at": action.started_at,
@@ -318,6 +320,13 @@ def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Se
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
+    credential = (server.management_config_json or {}).get("credential")
+    auth_username = payload.admin_username
+    auth_password = payload.admin_password
+    if isinstance(credential, dict):
+        auth_username = auth_username or credential.get("username")
+        auth_password = auth_password or credential.get("password")
+
     action = ServerAction(
         server_id=server.id,
         action_type="hpe_create_ilo_user",
@@ -326,8 +335,8 @@ def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Se
             "password": payload.password,
             "bmc_ip": server.bmc_ip,
             "auth": {
-                "username": payload.admin_username,
-                "password": payload.admin_password,
+                "username": auth_username,
+                "password": auth_password,
             },
         },
     )
@@ -342,6 +351,13 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
     server = db.get(Server, server_id)
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    credential = (server.management_config_json or {}).get("credential")
+    auth_username = payload.admin_username
+    auth_password = payload.admin_password
+    if isinstance(credential, dict):
+        auth_username = auth_username or credential.get("username")
+        auth_password = auth_password or credential.get("password")
 
     management_config = {
         "ip": payload.ip,
@@ -358,13 +374,15 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
             "management": management_config,
             "bmc_ip": server.bmc_ip,
             "auth": {
-                "username": payload.admin_username,
-                "password": payload.admin_password,
+                "username": auth_username,
+                "password": auth_password,
             },
         },
     )
     server.bmc_ip = payload.ip
-    server.management_config_json = management_config
+    current = dict(server.management_config_json or {})
+    current.update(management_config)
+    server.management_config_json = current
 
     db.add(action)
     db.commit()

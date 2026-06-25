@@ -463,7 +463,11 @@ def detect_bmc(config: dict[str, str], system_vendor: str | None) -> dict[str, A
 def collect_inventory(config: dict[str, str]) -> dict[str, Any]:
     vendor = setting(config, "KDX_VENDOR") or dmi_value("system-manufacturer", "sys_vendor")
     model = setting(config, "KDX_MODEL") or dmi_value("system-product-name", "product_name")
-    product_name = setting(config, "KDX_PRODUCT_NAME") or dmi_value("system-version", "product_version")
+    product_name = (
+        setting(config, "KDX_PRODUCT_NAME")
+        or dmi_value("system-sku-number", "product_sku")
+        or dmi_value("system-version", "product_version")
+    )
     serial = (
         setting(config, "KDX_SERIAL_NUMBER")
         or dmi_value("system-serial-number", ["product_serial", "product_uuid"])
@@ -774,7 +778,7 @@ def redfish_verify_ilo_credential(root: str, auth: tuple[str, str], payload: dic
         if managed_user != auth[0]:
             try:
                 created = redfish_create_ilo_user(root, auth, managed_user, managed_password)
-                result["managed_user"] = {"username": created["username"], "created": True}
+                result["managed_user"] = {"username": created["username"], "password": managed_password, "created": True}
             except RuntimeError as exc:
                 result["managed_user"] = {"username": managed_user, "created": False, "error": str(exc)}
 

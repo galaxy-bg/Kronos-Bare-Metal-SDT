@@ -7,6 +7,21 @@ export type ManagementConfig = {
   vlan?: string | null;
   admin_username?: string | null;
   admin_password?: string | null;
+  credential?: {
+    username?: string | null;
+    password?: string | null;
+    verified?: boolean;
+    verified_at?: string | null;
+    source?: string | null;
+  } | null;
+  managed_user?: {
+    username?: string | null;
+    password?: string | null;
+    created?: boolean;
+    created_at?: string | null;
+    source?: string | null;
+  } | null;
+  dns_name?: string | null;
 };
 
 export type IloUserActionPayload = {
@@ -46,6 +61,7 @@ export type ServerSummary = {
   agent_ip: string | null;
   bmc_ip: string | null;
   management_config_json: ManagementConfig | null;
+  latest_inventory_json: Record<string, unknown> | null;
   agent_reachable: boolean | null;
   bmc_reachable: boolean | null;
   status: 'online' | 'offline' | string;

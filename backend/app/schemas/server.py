@@ -23,6 +23,7 @@ class ServerRead(BaseModel):
     agent_ip: str | None
     bmc_ip: str | None
     management_config_json: dict[str, Any] | None = None
+    latest_inventory_json: dict[str, Any] | None = None
     agent_reachable: bool | None = None
     bmc_reachable: bool | None = None
     status: str
