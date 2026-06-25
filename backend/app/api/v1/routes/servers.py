@@ -31,6 +31,8 @@ OFFLINE_AFTER = timedelta(minutes=5)
 DEFAULT_COMPLETED_ACTION_VISIBLE_MINUTES = 10
 ENROLLMENT_TOKEN_TTL = timedelta(minutes=15)
 ENROLLMENT_SECRET = os.environ.get("KDX_ENROLLMENT_SECRET") or secrets.token_urlsafe(32)
+DEFAULT_MANAGED_ILO_USER = os.environ.get("KDX_DEFAULT_ILO_USER", "hpadmin")
+DEFAULT_MANAGED_ILO_PASSWORD = os.environ.get("KDX_DEFAULT_ILO_PASSWORD", "HP1nv3nt")
 
 
 def b64url_encode(data: bytes) -> str:
@@ -238,16 +240,30 @@ def submit_ilo_enrollment(token: str, payload: IloEnrollmentSubmit, db: Session 
     if server is None or server.serial_number != token_payload.get("serial_number"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
-    action = ServerAction(
-        server_id=server.id,
-        action_type="hpe_verify_ilo_credential",
-        payload_json={
-            "auth": {"username": payload.username, "password": payload.password},
-            "dns_name": payload.dns_name,
-            "source": "ilo-tag-scan",
-            "create_managed_user": payload.create_managed_user,
-        },
-    )
+    if payload.create_managed_user and payload.username != DEFAULT_MANAGED_ILO_USER:
+        action = ServerAction(
+            server_id=server.id,
+            action_type="hpe_create_ilo_user",
+            payload_json={
+                "username": DEFAULT_MANAGED_ILO_USER,
+                "password": DEFAULT_MANAGED_ILO_PASSWORD,
+                "bmc_ip": server.bmc_ip,
+                "dns_name": payload.dns_name,
+                "source": "ilo-tag-scan",
+                "auth": {"username": payload.username, "password": payload.password},
+            },
+        )
+    else:
+        action = ServerAction(
+            server_id=server.id,
+            action_type="hpe_verify_ilo_credential",
+            payload_json={
+                "auth": {"username": payload.username, "password": payload.password},
+                "dns_name": payload.dns_name,
+                "source": "ilo-tag-scan",
+                "create_managed_user": payload.create_managed_user,
+            },
+        )
     db.add(action)
     db.commit()
     db.refresh(action)

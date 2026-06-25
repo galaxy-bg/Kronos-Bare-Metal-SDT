@@ -210,6 +210,20 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
 
     if action.action_type == "hpe_create_ilo_user" and payload.status == "succeeded":
         current = merged_management_config(server)
+        auth = original_payload.get("auth") if isinstance(original_payload, dict) else None
+        if isinstance(auth, dict) and auth.get("username") and auth.get("password"):
+            current["credential"] = compact_management_config(
+                {
+                    "username": auth.get("username"),
+                    "password": auth.get("password"),
+                    "verified": True,
+                    "verified_at": action.completed_at.isoformat() if action.completed_at else None,
+                    "source": original_payload.get("source") if isinstance(original_payload, dict) else "create-user-action",
+                }
+            )
+        dns_name = original_payload.get("dns_name") if isinstance(original_payload, dict) else None
+        if dns_name:
+            current["dns_name"] = dns_name
         current["managed_user"] = compact_management_config(
             {
                 "username": original_payload.get("username") if isinstance(original_payload, dict) else None,
