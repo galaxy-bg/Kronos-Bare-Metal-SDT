@@ -653,12 +653,27 @@ def redfish_roots(payload: dict[str, Any], config: dict[str, str]) -> list[str]:
     return roots
 
 
+RedfishAuth = dict[str, str] | tuple[str, str]
+
+
+def redfish_auth_username(auth: RedfishAuth) -> str:
+    if isinstance(auth, dict):
+        return auth["username"]
+    return auth[0]
+
+
+def redfish_auth_password(auth: RedfishAuth) -> str:
+    if isinstance(auth, dict):
+        return auth["password"]
+    return auth[1]
+
+
 def redfish_request(
     root: str,
     path: str,
     method: str = "GET",
     payload: dict[str, Any] | None = None,
-    auth: tuple[str, str] | None = None,
+    auth: RedfishAuth | None = None,
     timeout: int = 15,
 ) -> dict[str, Any]:
     url = f"{root.rstrip('/')}{path}"
@@ -667,8 +682,14 @@ def redfish_request(
     if payload is not None:
         headers["Content-Type"] = "application/json"
     if auth is not None:
-        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode("utf-8")).decode("ascii")
-        headers["Authorization"] = f"Basic {token}"
+        session_token = auth.get("token") if isinstance(auth, dict) else None
+        if session_token:
+            headers["X-Auth-Token"] = session_token
+        else:
+            token = base64.b64encode(
+                f"{redfish_auth_username(auth)}:{redfish_auth_password(auth)}".encode("utf-8")
+            ).decode("ascii")
+            headers["Authorization"] = f"Basic {token}"
 
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     context = ssl._create_unverified_context()
@@ -683,6 +704,35 @@ def redfish_request(
         raise RuntimeError(f"{method} {url} failed: {exc.reason}") from exc
 
 
+def redfish_create_session(root: str, auth: tuple[str, str]) -> dict[str, str]:
+    url = f"{root.rstrip('/')}/redfish/v1/SessionService/Sessions/"
+    payload = {"UserName": auth[0], "Password": auth[1]}
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        method="POST",
+    )
+    context = ssl._create_unverified_context()
+    try:
+        with urllib.request.urlopen(request, timeout=15, context=context) as response:
+            token = response.headers.get("X-Auth-Token")
+            if not token:
+                raise RuntimeError(f"POST {url} did not return X-Auth-Token")
+            return {
+                "username": auth[0],
+                "password": auth[1],
+                "token": token,
+                "session_location": response.headers.get("Location", ""),
+            }
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"POST {url} failed with HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"POST {url} failed: {exc.reason}") from exc
+
+
 def redfish_members(collection: dict[str, Any]) -> list[str]:
     members: list[str] = []
     for member in collection.get("Members", []):
@@ -693,7 +743,7 @@ def redfish_members(collection: dict[str, Any]) -> list[str]:
     return members
 
 
-def redfish_first_manager(root: str, auth: tuple[str, str] | None) -> str:
+def redfish_first_manager(root: str, auth: RedfishAuth | None) -> str:
     collection = redfish_request(root, "/redfish/v1/Managers/", auth=auth)
     members = redfish_members(collection)
     if not members:
@@ -701,7 +751,7 @@ def redfish_first_manager(root: str, auth: tuple[str, str] | None) -> str:
     return members[0]
 
 
-def redfish_first_manager_ethernet(root: str, auth: tuple[str, str] | None) -> str:
+def redfish_first_manager_ethernet(root: str, auth: RedfishAuth | None) -> str:
     manager_path = redfish_first_manager(root, auth)
     collection = redfish_request(root, f"{manager_path.rstrip('/')}/EthernetInterfaces/", auth=auth)
     members = redfish_members(collection)
@@ -710,7 +760,20 @@ def redfish_first_manager_ethernet(root: str, auth: tuple[str, str] | None) -> s
     return members[0]
 
 
-def redfish_create_ilo_user(root: str, auth: tuple[str, str], username: str, password: str) -> dict[str, Any]:
+def redfish_account_for_username(root: str, auth: RedfishAuth, username: str) -> dict[str, Any] | None:
+    collection = redfish_request(root, "/redfish/v1/AccountService/Accounts/", auth=auth)
+    for account_path in redfish_members(collection):
+        account = redfish_request(root, account_path, auth=auth)
+        if str(account.get("UserName", "")).lower() == username.lower():
+            return {"path": account_path, "account": account}
+    return None
+
+
+def redfish_create_ilo_user(root: str, auth: RedfishAuth, username: str, password: str) -> dict[str, Any]:
+    existing = redfish_account_for_username(root, auth, username)
+    if existing is not None:
+        return {"backend": "redfish", "endpoint": root, "existing": True, "username": username, **existing}
+
     request = {
         "UserName": username,
         "Password": password,
@@ -730,7 +793,7 @@ def redfish_dns_servers(ethernet: dict[str, Any]) -> str | None:
     return None
 
 
-def redfish_find_ilo_network(root: str, auth: tuple[str, str]) -> dict[str, Any]:
+def redfish_find_ilo_network(root: str, auth: RedfishAuth) -> dict[str, Any]:
     manager_path = redfish_first_manager(root, auth)
     collection = redfish_request(root, f"{manager_path.rstrip('/')}/EthernetInterfaces/", auth=auth)
     members = redfish_members(collection)
@@ -762,20 +825,20 @@ def redfish_find_ilo_network(root: str, auth: tuple[str, str]) -> dict[str, Any]
     raise RuntimeError(f"No routable iLO management IPv4 address found. Skipped: {', '.join(skipped) or 'none'}")
 
 
-def redfish_verify_ilo_credential(root: str, auth: tuple[str, str], payload: dict[str, Any], config: dict[str, str]) -> dict[str, Any]:
+def redfish_verify_ilo_credential(root: str, auth: RedfishAuth, payload: dict[str, Any], config: dict[str, str]) -> dict[str, Any]:
     bmc = redfish_find_ilo_network(root, auth)
     result: dict[str, Any] = {
         "backend": "redfish",
         "endpoint": root,
         "bmc": bmc,
         "dns_name": string_value(payload.get("dns_name")),
-        "credential": {"username": auth[0], "verified": True},
+        "credential": {"username": redfish_auth_username(auth), "verified": True},
     }
 
     if payload.get("create_managed_user"):
         managed_user = string_value(setting(config, "KDX_DEFAULT_ILO_USER", "hpadmin")) or "hpadmin"
         managed_password = string_value(setting(config, "KDX_DEFAULT_ILO_PASSWORD", "HP1nv3nt")) or "HP1nv3nt"
-        if managed_user != auth[0]:
+        if managed_user != redfish_auth_username(auth):
             try:
                 created = redfish_create_ilo_user(root, auth, managed_user, managed_password)
                 result["managed_user"] = {"username": created["username"], "password": managed_password, "created": True}
@@ -863,11 +926,21 @@ def run_redfish_action(
 
     errors: list[str] = []
     for root in redfish_roots(payload, config):
+        request_auth: RedfishAuth = auth
+        session_error = None
         try:
-            redfish_request(root, "/redfish/v1/", auth=auth)
-            return handler(root, auth)
+            request_auth = redfish_create_session(root, auth)
         except RuntimeError as exc:
-            errors.append(str(exc))
+            session_error = str(exc)
+
+        try:
+            redfish_request(root, "/redfish/v1/", auth=request_auth)
+            return handler(root, request_auth)
+        except RuntimeError as exc:
+            if session_error:
+                errors.append(f"{session_error}; {exc}")
+            else:
+                errors.append(str(exc))
     raise RuntimeError("; ".join(errors) or "No Redfish endpoints were available")
 
 
@@ -935,7 +1008,12 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
             except RuntimeError as exc:
                 redfish_error = str(exc)
 
-        result = run_hponcfg(build_hponcfg_create_user_xml(username, password))
+        try:
+            result = run_hponcfg(build_hponcfg_create_user_xml(username, password))
+        except RuntimeError as exc:
+            if redfish_error:
+                raise RuntimeError(f"Redfish failed: {redfish_error}; hponcfg failed: {exc}") from exc
+            raise
         if redfish_error:
             result["redfish_error"] = redfish_error
         return {**result, "username": username}
@@ -958,7 +1036,12 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
             except RuntimeError as exc:
                 redfish_error = str(exc)
 
-        result = run_hponcfg(build_hponcfg_network_xml(management))
+        try:
+            result = run_hponcfg(build_hponcfg_network_xml(management))
+        except RuntimeError as exc:
+            if redfish_error:
+                raise RuntimeError(f"Redfish failed: {redfish_error}; hponcfg failed: {exc}") from exc
+            raise
         if redfish_error:
             result["redfish_error"] = redfish_error
         return {**result, "management": {key: value for key, value in management.items() if key != "password"}}
