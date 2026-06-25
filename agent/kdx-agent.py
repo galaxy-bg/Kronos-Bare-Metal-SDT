@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 from xml.etree import ElementTree as ET
 
 
@@ -653,7 +653,7 @@ def redfish_roots(payload: dict[str, Any], config: dict[str, str]) -> list[str]:
     return roots
 
 
-RedfishAuth = dict[str, str] | tuple[str, str]
+RedfishAuth = Union[dict[str, str], tuple[str, str]]
 
 
 def redfish_auth_username(auth: RedfishAuth) -> str:
