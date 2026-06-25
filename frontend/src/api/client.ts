@@ -13,8 +13,14 @@ import type {
   ServerUpdate,
 } from '../types';
 
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
+const apiBaseUrl =
+  typeof window !== 'undefined' && window.location.protocol === 'https:' && configuredApiBaseUrl.startsWith('http:')
+    ? ''
+    : configuredApiBaseUrl;
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '',
+  baseURL: apiBaseUrl,
 });
 
 export async function fetchStats(): Promise<DashboardStats> {

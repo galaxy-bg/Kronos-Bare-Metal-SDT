@@ -40,7 +40,7 @@ services:
       context: ./frontend
     container_name: kdx-sdt-frontend
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+      VITE_API_BASE_URL: ${KDX_FRONTEND_API_BASE_URL:-}
       KDX_BACKEND_PROXY_TARGET: ${KDX_BACKEND_PROXY_TARGET:-http://backend:8000}
       KDX_FRONTEND_HTTPS: ${KDX_FRONTEND_HTTPS:-true}
       KDX_FRONTEND_HTTPS_KEY: ${KDX_FRONTEND_HTTPS_KEY:-./certs/kdx-sdt-dev.key}
