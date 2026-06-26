@@ -27,6 +27,10 @@ Expected additional HPE packages:
 
 If `ilorest` or `ssacli` are not present in the selected SPP path, keep their RPM URLs in environment variables when running the download script.
 
+## iLO 6/7 Note
+
+On Gen11/Gen12 systems, local iLO configuration should prefer Redfish with a valid iLO user. `hponcfg` can fail on newer iLO firmware with errors such as `CPQCIDRV driver is not loaded`. The KDX flow therefore treats `hponcfg` as a fallback and relies on Redfish after the factory `Administrator` credential is validated or the managed `hpadmin` user is created.
+
 ## Download
 
 ```bash
@@ -43,4 +47,3 @@ SSACLI_RPM_URL="https://example/hpe/ssacli.rpm" \
 ```
 
 Downloaded RPMs are ignored by Git. Keep them in the builder workspace or private artifact storage.
-

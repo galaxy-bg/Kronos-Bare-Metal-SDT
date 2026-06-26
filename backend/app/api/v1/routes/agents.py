@@ -210,6 +210,13 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
 
     if action.action_type == "hpe_create_ilo_user" and payload.status == "succeeded":
         current = merged_management_config(server)
+        result = payload.result or {}
+        bmc = result.get("bmc") if isinstance(result, dict) else None
+        if isinstance(bmc, dict):
+            ip = bmc.get("ip")
+            if ip:
+                server.bmc_ip = str(ip)
+            current.update(bmc)
         auth = original_payload.get("auth") if isinstance(original_payload, dict) else None
         if isinstance(auth, dict) and auth.get("username") and auth.get("password"):
             current["credential"] = compact_management_config(

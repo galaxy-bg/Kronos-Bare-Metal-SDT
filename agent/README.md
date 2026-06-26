@@ -10,6 +10,7 @@ Initial responsibilities:
 - Register to the controller
 - Send periodic heartbeat
 - Upload inventory snapshots
+- Refresh inventory periodically so first-boot gaps can be filled later
 
 ## Current Implementation
 
@@ -24,6 +25,14 @@ It collects inventory from the running OS and posts it to the controller:
 - `ip -j addr` for network interfaces
 
 VM tests can use predefined values from `/etc/kdx-agent/agent.env` for fields that are not realistic inside a VM, such as HPE serial number or BMC details.
+
+## HPE iLO Discovery Flow
+
+On first boot, the agent may not know the iLO/BMC IP address. This is expected on newer HPE systems when local Redfish requires a valid iLO user before exposing management network settings. In that state the inventory reports `pending-management-network-config`.
+
+The control plane can validate the factory `Administrator` credential or create the managed `hpadmin` user. Successful Redfish validation reads the current iLO management network and stores the discovered BMC IP. If `hpadmin` is created through Redfish, the same action also refreshes BMC network details.
+
+After the initial upload, the agent refreshes full inventory every `KDX_INVENTORY_REFRESH_INTERVAL` seconds, default `300`. Set it to `0` to disable periodic inventory refresh.
 
 ## Rocky VM Test
 

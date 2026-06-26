@@ -784,6 +784,20 @@ def redfish_create_ilo_user(root: str, auth: RedfishAuth, username: str, passwor
     return {"backend": "redfish", "endpoint": root, "account": result, "username": username}
 
 
+def redfish_create_ilo_user_and_refresh_bmc(
+    root: str,
+    auth: RedfishAuth,
+    username: str,
+    password: str,
+) -> dict[str, Any]:
+    result = redfish_create_ilo_user(root, auth, username, password)
+    try:
+        result["bmc"] = redfish_find_ilo_network(root, auth)
+    except RuntimeError as exc:
+        result["bmc_error"] = str(exc)
+    return result
+
+
 def redfish_dns_servers(ethernet: dict[str, Any]) -> str | None:
     candidates = ethernet.get("NameServers") or ethernet.get("StaticNameServers")
     if isinstance(candidates, list):
@@ -1003,7 +1017,7 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
                 return run_redfish_action(
                     payload,
                     config,
-                    lambda root, auth: redfish_create_ilo_user(root, auth, username, password),
+                    lambda root, auth: redfish_create_ilo_user_and_refresh_bmc(root, auth, username, password),
                 )
             except RuntimeError as exc:
                 redfish_error = str(exc)
@@ -1123,12 +1137,19 @@ def main() -> int:
         print("One-shot mode complete")
         return 0
 
+    inventory_refresh_interval = int(setting(config, "KDX_INVENTORY_REFRESH_INTERVAL", "300") or "300")
+    next_inventory_refresh = time.monotonic() + inventory_refresh_interval
     print(f"Sending heartbeat every {interval} seconds")
     while True:
         payload = {"serial_number": serial, "agent_ip": get_agent_ip(interface)}
         result = post_json(controller, "/api/v1/agents/heartbeat", payload)
         print(f"heartbeat ok: {result.get('serial_number', serial)}")
         poll_and_execute_actions(controller, serial, config, system.get("vendor"))
+        if inventory_refresh_interval > 0 and time.monotonic() >= next_inventory_refresh:
+            inventory = collect_inventory(config)
+            print("Refreshing inventory")
+            print(json.dumps(post_json(controller, "/api/v1/agents/inventory", {"serial_number": serial, "inventory": inventory}), indent=2))
+            next_inventory_refresh = time.monotonic() + inventory_refresh_interval
         time.sleep(interval)
 
 
