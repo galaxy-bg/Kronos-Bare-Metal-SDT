@@ -129,8 +129,9 @@ def enriched_inventory_json(server: Server, inventory_json: dict[str, Any] | Non
 
     config = server.management_config_json or {}
     if server.bmc_ip:
+        if not bmc.get("ip"):
+            bmc["detected_by"] = "control-plane-merged"
         bmc["ip"] = server.bmc_ip
-        bmc["detected_by"] = bmc.get("detected_by") or "control-plane"
     for key in ("subnet", "gateway", "dns", "vlan", "redfish_endpoint", "redfish_ethernet_interface"):
         if config.get(key) is not None:
             bmc[key] = config[key]
