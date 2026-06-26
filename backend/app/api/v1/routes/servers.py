@@ -1,4 +1,5 @@
 import base64
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
@@ -116,8 +117,31 @@ def ping_ip(ip_address: str | None) -> bool | None:
     return result.returncode == 0
 
 
+def enriched_inventory_json(server: Server, inventory_json: dict[str, Any] | None) -> dict[str, Any] | None:
+    if inventory_json is None:
+        return None
+
+    enriched = deepcopy(inventory_json)
+    bmc = enriched.get("bmc")
+    if not isinstance(bmc, dict):
+        bmc = {}
+        enriched["bmc"] = bmc
+
+    config = server.management_config_json or {}
+    if server.bmc_ip:
+        bmc["ip"] = server.bmc_ip
+        bmc["detected_by"] = bmc.get("detected_by") or "control-plane"
+    for key in ("subnet", "gateway", "dns", "vlan", "redfish_endpoint", "redfish_ethernet_interface"):
+        if config.get(key) is not None:
+            bmc[key] = config[key]
+    if config.get("dns_name"):
+        bmc["dns_name"] = config["dns_name"]
+
+    return enriched
+
+
 def server_to_read(server: Server) -> dict[str, Any]:
-    latest_inventory = server.inventories[0].inventory_json if server.inventories else None
+    latest_inventory = enriched_inventory_json(server, server.inventories[0].inventory_json) if server.inventories else None
     return {
         "id": server.id,
         "uuid": server.uuid,
@@ -141,7 +165,13 @@ def server_to_read(server: Server) -> dict[str, Any]:
 
 def server_to_detail(server: Server) -> dict[str, Any]:
     data = server_to_read(server)
-    data["inventories"] = server.inventories
+    inventories = []
+    for index, inventory in enumerate(server.inventories):
+        inventory_json = inventory.inventory_json
+        if index == 0:
+            inventory_json = enriched_inventory_json(server, inventory_json) or {}
+        inventories.append({"id": inventory.id, "inventory_json": inventory_json, "created_at": inventory.created_at})
+    data["inventories"] = inventories
     return data
 
 

@@ -82,7 +82,10 @@ export function ServerDetailPage() {
     load();
   }, [serverId]);
 
-  const latestInventory = useMemo<Record<string, unknown>>(() => server?.inventories[0]?.inventory_json ?? {}, [server]);
+  const latestInventory = useMemo<Record<string, unknown>>(
+    () => server?.latest_inventory_json ?? server?.inventories[0]?.inventory_json ?? {},
+    [server],
+  );
 
   if (loading) {
     return (
