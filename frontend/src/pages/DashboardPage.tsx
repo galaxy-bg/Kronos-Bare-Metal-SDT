@@ -108,6 +108,12 @@ function actionCredentialFor(server: ServerSummary) {
   return credentialFor(server);
 }
 
+function hasUsableActionCredential(server: ServerSummary | null) {
+  if (!server) return false;
+  const credential = actionCredentialFor(server);
+  return Boolean(credential?.username && credential?.password);
+}
+
 function networkInterfacesFor(server: ServerSummary) {
   const network = server.latest_inventory_json?.network;
   return Array.isArray(network) ? network.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : [];
@@ -148,6 +154,29 @@ function actionLabel(actionType: string) {
     hpe_verify_ilo_credential: 'Verify iLO Credential',
   };
   return labels[actionType] ?? actionType.split('_').join(' ');
+}
+
+function actionDetailLines(action: ServerAction, target?: ServerSummary) {
+  const payload = action.payload_json ?? {};
+  const result = action.result_json ?? {};
+  const management = payload.management && typeof payload.management === 'object' ? payload.management as Record<string, unknown> : null;
+  const auth = payload.auth && typeof payload.auth === 'object' ? payload.auth as Record<string, unknown> : null;
+  const bmc = result.bmc && typeof result.bmc === 'object' ? result.bmc as Record<string, unknown> : null;
+  const lines = [
+    `Target: ${target?.hostname ?? target?.serial_number ?? `Server #${action.server_id}`}`,
+    `Status: ${action.status}`,
+  ];
+
+  if (payload.bmc_ip) lines.push(`BMC IP: ${String(payload.bmc_ip)}`);
+  if (management?.ip) lines.push(`Requested IP: ${String(management.ip)}`);
+  if (management?.vlan) lines.push(`VLAN: ${String(management.vlan)}${String(management.vlan) === '0' ? ' (access)' : ' (tagged)'}`);
+  if (payload.username) lines.push(`User: ${String(payload.username)}`);
+  if (auth?.username) lines.push(`Auth: ${String(auth.username)}`);
+  if (bmc?.ip) lines.push(`Detected BMC IP: ${String(bmc.ip)}`);
+  if (action.error_message) lines.push(`Error: ${action.error_message}`);
+  if (!action.error_message && action.status === 'succeeded') lines.push('Result: Completed successfully');
+
+  return lines;
 }
 
 function StatusChip({ status }: { status: string }) {
@@ -219,6 +248,44 @@ function ActionStatusChip({ status }: { status: string }) {
         '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
       }}
     />
+  );
+}
+
+function CredentialChip({ server }: { server: ServerSummary }) {
+  const credential = credentialFor(server);
+  const managedUser = managedUserFor(server);
+  const managedReady = Boolean(managedUser?.username && managedUser?.password && managedUser?.created);
+  const verified = Boolean(credential?.verified);
+  const usable = hasUsableActionCredential(server);
+  const label = managedReady ? 'hpadmin ready' : verified ? 'iLO verified' : usable ? 'credential stored' : 'credential needed';
+  const color = managedReady || verified ? '#1f7d55' : usable ? '#75611d' : '#62666f';
+  const bg = managedReady || verified ? '#e7f7ef' : usable ? '#fff8df' : '#f3f5f5';
+  const border = managedReady || verified ? '#bfe8d2' : usable ? '#ead58a' : '#dfe5e3';
+  const icon = managedReady || verified ? <CheckCircleIcon /> : usable ? <PendingActionsIcon /> : <HelpOutlineIcon />;
+  const title = managedReady
+    ? `Managed user ${managedUser?.username} is available for iLO actions.`
+    : verified
+      ? `Credential ${credential?.username ?? ''} was validated${credential?.verified_at ? ` at ${formatDate(credential.verified_at)}` : ''}.`
+      : usable
+        ? 'A stored credential is available, but validation status is not confirmed.'
+        : 'Scan/enter the iLO Administrator credential before protected iLO actions.';
+
+  return (
+    <Tooltip title={title} arrow>
+      <Chip
+        size="small"
+        icon={icon}
+        label={label}
+        sx={{
+          bgcolor: bg,
+          color,
+          border: '1px solid',
+          borderColor: border,
+          fontWeight: 800,
+          '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
+        }}
+      />
+    </Tooltip>
   );
 }
 
@@ -407,7 +474,7 @@ export function DashboardPage() {
       username: hasManagedUser ? '' : 'hpadmin',
       password: hasManagedUser ? '' : 'HP1nv3nt',
       confirmPassword: hasManagedUser ? '' : 'HP1nv3nt',
-      adminUsername: credential?.username ?? 'hpadmin',
+      adminUsername: credential?.username ?? 'Administrator',
       adminPassword: credential?.password ?? '',
     });
     setShowIloPassword(false);
@@ -472,6 +539,10 @@ export function DashboardPage() {
         setError('iLO IP is required.');
         return;
       }
+      if (!normalizedConfig.admin_username || !normalizedConfig.admin_password) {
+        setError('Validated iLO credentials or an iLO admin username/password are required.');
+        return;
+      }
       await createIloNetworkAction(selectedServer.id, normalizedConfig);
       await load();
       closeManagementIp();
@@ -495,6 +566,10 @@ export function DashboardPage() {
     }
     if (password !== confirmPassword) {
       setError('iLO password confirmation does not match.');
+      return;
+    }
+    if (!adminUsername || !adminPassword) {
+      setError('Validated iLO credentials or the Administrator username/password are required.');
       return;
     }
 
@@ -865,7 +940,10 @@ export function DashboardPage() {
                     <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />
                   </TableCell>
                   <TableCell>
-                    <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />
+                    <Stack spacing={0.75} alignItems="flex-start">
+                      <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />
+                      <CredentialChip server={server} />
+                    </Stack>
                   </TableCell>
                   <TableCell>
                     <StatusChip status={server.status} />
@@ -963,9 +1041,28 @@ export function DashboardPage() {
                 {actions.map((action) => {
                   const target = serverById.get(action.server_id);
                   const resultText = action.error_message || (action.status === 'succeeded' ? 'Completed successfully' : '-');
+                  const detailLines = actionDetailLines(action, target);
                   return (
                     <TableRow key={action.id} hover>
-                      <TableCell sx={{ fontWeight: 800 }}>{actionLabel(action.action_type)}</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>
+                        <Tooltip
+                          arrow
+                          title={
+                            <Box>
+                              {detailLines.map((line) => (
+                                <Typography key={line} variant="caption" component="div">
+                                  {line}
+                                </Typography>
+                              ))}
+                            </Box>
+                          }
+                        >
+                          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ width: 'fit-content' }}>
+                            <HelpOutlineIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                            <span>{actionLabel(action.action_type)}</span>
+                          </Stack>
+                        </Tooltip>
+                      </TableCell>
                       <TableCell>
                         {target ? (
                           <Link component={RouterLink} to={`/servers/${target.id}`} underline="hover" sx={{ fontWeight: 800 }}>
@@ -1081,6 +1178,16 @@ export function DashboardPage() {
             <Typography color="text.secondary">
               {selectedServer?.hostname ?? selectedServer?.serial_number}
             </Typography>
+            {!hasUsableActionCredential(selectedServer) && (
+              <Alert severity="warning">
+                iLO credential is not validated yet. Enter the Administrator username/password to queue this action.
+              </Alert>
+            )}
+            {selectedServer && !selectedServer.bmc_ip && (
+              <Alert severity="info">
+                No BMC IP is stored yet. The agent will try the local Redfish endpoint first; once credentials are valid, the BMC IP should be refreshed.
+              </Alert>
+            )}
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <TextField
@@ -1172,7 +1279,16 @@ export function DashboardPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={closeManagementIp}>Cancel</Button>
-          <Button onClick={saveManagementIp} variant="contained" disabled={saving}>
+          <Button
+            onClick={saveManagementIp}
+            variant="contained"
+            disabled={
+              saving ||
+              !managementConfig.ip?.trim() ||
+              !managementConfig.admin_username?.trim() ||
+              !managementConfig.admin_password?.trim()
+            }
+          >
             Queue Network Action
           </Button>
         </DialogActions>
@@ -1185,6 +1301,16 @@ export function DashboardPage() {
             <Typography color="text.secondary">
               {selectedServer?.hostname ?? selectedServer?.serial_number}
             </Typography>
+            {!hasUsableActionCredential(selectedServer) && (
+              <Alert severity="warning">
+                First-time setup needs the iLO Administrator credential. After hpadmin is created, later actions will use hpadmin.
+              </Alert>
+            )}
+            {selectedServer?.management_config_json?.managed_user?.created && (
+              <Alert severity="success">
+                Managed iLO user already exists. Protected actions will use hpadmin; enter a different username only if another iLO user is needed.
+              </Alert>
+            )}
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <TextField
@@ -1263,7 +1389,19 @@ export function DashboardPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={closeIloUser}>Cancel</Button>
-          <Button onClick={saveIloUser} variant="contained" disabled={saving}>
+          <Button
+            onClick={saveIloUser}
+            variant="contained"
+            disabled={
+              saving ||
+              !iloUserForm.username.trim() ||
+              !iloUserForm.password.trim() ||
+              !iloUserForm.confirmPassword.trim() ||
+              iloUserForm.password !== iloUserForm.confirmPassword ||
+              !iloUserForm.adminUsername.trim() ||
+              !iloUserForm.adminPassword.trim()
+            }
+          >
             Queue User Action
           </Button>
         </DialogActions>

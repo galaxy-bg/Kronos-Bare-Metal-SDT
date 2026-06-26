@@ -203,6 +203,22 @@ def preferred_ilo_auth(server: Server, admin_username: str | None, admin_passwor
     return auth_username, auth_password
 
 
+def has_managed_ilo_user(server: Server) -> bool:
+    managed_user = (server.management_config_json or {}).get("managed_user")
+    return isinstance(managed_user, dict) and bool(
+        managed_user.get("username") and managed_user.get("password") and managed_user.get("created")
+    )
+
+
+def require_ilo_auth(auth_username: str | None, auth_password: str | None) -> tuple[str, str]:
+    if not auth_username or not auth_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Validated iLO credentials or an iLO admin username/password are required.",
+        )
+    return auth_username, auth_password
+
+
 @router.get("", response_model=list[ServerRead])
 def list_servers(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     refresh_server_statuses(db)
@@ -390,8 +406,11 @@ def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Se
     server = db.get(Server, server_id)
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    if payload.username == DEFAULT_MANAGED_ILO_USER and has_managed_ilo_user(server):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{DEFAULT_MANAGED_ILO_USER} is already managed for this server.")
 
     auth_username, auth_password = preferred_ilo_auth(server, payload.admin_username, payload.admin_password)
+    auth_username, auth_password = require_ilo_auth(auth_username, auth_password)
 
     action = ServerAction(
         server_id=server.id,
@@ -419,6 +438,7 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
     auth_username, auth_password = preferred_ilo_auth(server, payload.admin_username, payload.admin_password)
+    auth_username, auth_password = require_ilo_auth(auth_username, auth_password)
 
     management_config = {
         "ip": payload.ip,
