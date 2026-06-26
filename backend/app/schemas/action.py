@@ -54,6 +54,28 @@ class IloNetworkActionRequest(BaseModel):
         return stripped or None
 
 
+class IloLicenseActionRequest(BaseModel):
+    license_key: str = Field(min_length=1, max_length=256)
+    admin_username: str | None = Field(default=None, max_length=64)
+    admin_password: str | None = Field(default=None, max_length=128)
+
+    @field_validator("license_key")
+    @classmethod
+    def strip_license_key(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("License key cannot be empty")
+        return stripped
+
+    @field_validator("admin_username", "admin_password")
+    @classmethod
+    def strip_optional_license_auth(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
 class IloEnrollmentCreateResponse(BaseModel):
     token: str
     url: str

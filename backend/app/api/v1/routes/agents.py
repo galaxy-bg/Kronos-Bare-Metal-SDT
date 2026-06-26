@@ -18,7 +18,7 @@ def mask_secret_fields(value: object) -> object:
     if isinstance(value, dict):
         masked: dict[str, object] = {}
         for key, item in value.items():
-            if "password" in key.lower():
+            if "password" in key.lower() or "license_key" in key.lower():
                 masked[key] = "********"
             else:
                 masked[key] = mask_secret_fields(item)
@@ -45,6 +45,11 @@ def compact_management_config(value: dict) -> dict:
     return {key: item for key, item in value.items() if item is not None}
 
 
+def reject_deregistered(server: Server) -> None:
+    if server.status == "deregistered":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Server is deregistered")
+
+
 @router.post("/register", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
 def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) -> Server:
     now = datetime.now(UTC)
@@ -59,6 +64,12 @@ def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) ->
             hostname=payload.hostname or default_hostname(payload.serial_number),
             agent_ip=payload.agent_ip,
             bmc_ip=payload.bmc_ip,
+            management_config_json={
+                "registration": {
+                    "status": "registered",
+                    "registered_at": now.isoformat(),
+                }
+            },
             status="online",
             last_seen=now,
         )
@@ -72,6 +83,14 @@ def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) ->
         update_if_known(server, "bmc_ip", payload.bmc_ip)
         if server.hostname is None:
             server.hostname = default_hostname(payload.serial_number)
+        current = merged_management_config(server)
+        current["registration"] = compact_management_config(
+            {
+                "status": "reclaimed" if server.status == "deregistered" else "registered",
+                "registered_at": now.isoformat(),
+            }
+        )
+        server.management_config_json = compact_management_config(current)
         server.status = "online"
         server.last_seen = now
 
@@ -85,6 +104,7 @@ def heartbeat(payload: AgentHeartbeat, db: Session = Depends(get_db)) -> Server:
     server = db.scalar(select(Server).where(Server.serial_number == payload.serial_number))
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server is not registered")
+    reject_deregistered(server)
 
     server.status = "online"
     server.last_seen = datetime.now(UTC)
@@ -101,6 +121,7 @@ def upload_inventory(payload: InventoryUpload, db: Session = Depends(get_db)) ->
     server = db.scalar(select(Server).where(Server.serial_number == payload.serial_number))
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server is not registered")
+    reject_deregistered(server)
 
     inventory = Inventory(server_id=server.id, inventory_json=payload.inventory)
     server.status = "online"
@@ -125,6 +146,7 @@ def next_action(payload: AgentActionPoll, db: Session = Depends(get_db)) -> dict
     server = db.scalar(select(Server).where(Server.serial_number == payload.serial_number))
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server is not registered")
+    reject_deregistered(server)
 
     action = db.scalar(
         select(ServerAction)
@@ -240,6 +262,21 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
                 "source": "create-user-action",
             }
         )
+        server.management_config_json = compact_management_config(current)
+
+    if action.action_type == "hpe_install_ilo_license" and payload.status == "succeeded":
+        current = merged_management_config(server)
+        result = payload.result or {}
+        license_result = {
+            "installed": True,
+            "installed_at": action.completed_at.isoformat() if action.completed_at else None,
+            "source": "install-license-action",
+        }
+        if isinstance(result, dict):
+            for key in ("backend", "endpoint", "license_service", "action"):
+                if result.get(key) is not None:
+                    license_result[key] = result[key]
+        current["license"] = compact_management_config(license_result)
         server.management_config_json = compact_management_config(current)
 
     db.commit()

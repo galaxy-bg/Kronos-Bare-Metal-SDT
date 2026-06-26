@@ -56,13 +56,16 @@ import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   bulkDeleteServers,
   createIloEnrollment,
+  createIloLicenseAction,
   createIloNetworkAction,
   createIloUserAction,
   deleteServer,
+  deregisterServer,
   fetchRecentActions,
   fetchServers,
   fetchStats,
@@ -152,6 +155,7 @@ function actionLabel(actionType: string) {
     hpe_create_ilo_user: 'Create iLO User',
     hpe_set_ilo_network: 'Set Management Network',
     hpe_verify_ilo_credential: 'Verify iLO Credential',
+    hpe_install_ilo_license: 'Install iLO License',
   };
   return labels[actionType] ?? actionType.split('_').join(' ');
 }
@@ -171,8 +175,10 @@ function actionDetailLines(action: ServerAction, target?: ServerSummary) {
   if (management?.ip) lines.push(`Requested IP: ${String(management.ip)}`);
   if (management?.vlan) lines.push(`VLAN: ${String(management.vlan)}${String(management.vlan) === '0' ? ' (access)' : ' (tagged)'}`);
   if (payload.username) lines.push(`User: ${String(payload.username)}`);
+  if (payload.license_key) lines.push('License key: ********');
   if (auth?.username) lines.push(`Auth: ${String(auth.username)}`);
   if (bmc?.ip) lines.push(`Detected BMC IP: ${String(bmc.ip)}`);
+  if (result.action) lines.push(`Redfish action: ${String(result.action)}`);
   if (action.error_message) lines.push(`Error: ${action.error_message}`);
   if (!action.error_message && action.status === 'succeeded') lines.push('Result: Completed successfully');
 
@@ -289,6 +295,37 @@ function CredentialChip({ server }: { server: ServerSummary }) {
   );
 }
 
+function ReadinessChip({ server }: { server: ServerSummary }) {
+  const variants: Record<string, { label: string; color: string; bg: string; border: string; icon: ReactElement }> = {
+    ready: { label: 'Ready', color: '#1f7d55', bg: '#e7f7ef', border: '#bfe8d2', icon: <TaskAltIcon /> },
+    credential_validated: { label: 'Credential OK', color: '#1f7d55', bg: '#e7f7ef', border: '#bfe8d2', icon: <CheckCircleIcon /> },
+    needs_credential: { label: 'Needs Credential', color: '#75611d', bg: '#fff8df', border: '#ead58a', icon: <VpnKeyIcon /> },
+    registered: { label: 'Registered', color: '#62666f', bg: '#f3f5f5', border: '#dfe5e3', icon: <HelpOutlineIcon /> },
+    conflict: { label: 'Conflict', color: '#b23b32', bg: '#fff1ef', border: '#f2c4bf', icon: <ErrorOutlineIcon /> },
+    deregistered: { label: 'Deregistered', color: '#62666f', bg: '#f3f5f5', border: '#dfe5e3', icon: <CancelIcon /> },
+  };
+  const variant = variants[server.readiness_status] ?? variants.registered;
+  const title = server.readiness_reasons.length > 0 ? server.readiness_reasons.join('\n') : variant.label;
+
+  return (
+    <Tooltip title={<Box sx={{ whiteSpace: 'pre-line' }}>{title}</Box>} arrow>
+      <Chip
+        size="small"
+        icon={variant.icon}
+        label={variant.label}
+        sx={{
+          bgcolor: variant.bg,
+          color: variant.color,
+          border: '1px solid',
+          borderColor: variant.border,
+          fontWeight: 800,
+          '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
+        }}
+      />
+    </Tooltip>
+  );
+}
+
 function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
   const label = reachable === null ? 'Unknown' : reachable ? 'Online' : 'Offline';
   const title = reachable === null ? 'Connection status is unknown' : reachable ? 'Connection available' : 'Connection unavailable';
@@ -334,6 +371,7 @@ export function DashboardPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [managementIpOpen, setManagementIpOpen] = useState(false);
   const [iloUserOpen, setIloUserOpen] = useState(false);
+  const [iloLicenseOpen, setIloLicenseOpen] = useState(false);
   const [enrollmentOpen, setEnrollmentOpen] = useState(false);
   const [enrollmentUrl, setEnrollmentUrl] = useState('');
   const [enrollmentExpiresAt, setEnrollmentExpiresAt] = useState<string | null>(null);
@@ -345,9 +383,15 @@ export function DashboardPage() {
     adminUsername: 'Administrator',
     adminPassword: '',
   });
+  const [iloLicenseForm, setIloLicenseForm] = useState({
+    licenseKey: '',
+    adminUsername: 'hpadmin',
+    adminPassword: '',
+  });
   const [showIloPassword, setShowIloPassword] = useState(false);
   const [showIloConfirmPassword, setShowIloConfirmPassword] = useState(false);
   const [showIloAdminPassword, setShowIloAdminPassword] = useState(false);
+  const [showLicenseAdminPassword, setShowLicenseAdminPassword] = useState(false);
   const [showNetworkAdminPassword, setShowNetworkAdminPassword] = useState(false);
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
@@ -372,6 +416,8 @@ export function DashboardPage() {
       server.agent_ip,
       server.bmc_ip,
       server.status,
+      server.readiness_status,
+      server.readiness_reasons.join(' '),
     ]
       .filter(Boolean)
       .join(' ')
@@ -484,6 +530,19 @@ export function DashboardPage() {
     closeMenu();
   }
 
+  function openIloLicense() {
+    if (!selectedServer) return;
+    const credential = actionCredentialFor(selectedServer);
+    setIloLicenseForm({
+      licenseKey: '',
+      adminUsername: credential?.username ?? 'hpadmin',
+      adminPassword: credential?.password ?? '',
+    });
+    setShowLicenseAdminPassword(false);
+    setIloLicenseOpen(true);
+    closeMenu();
+  }
+
   async function openIloEnrollment() {
     if (!selectedServer) return;
     try {
@@ -512,6 +571,13 @@ export function DashboardPage() {
     setShowIloPassword(false);
     setShowIloConfirmPassword(false);
     setShowIloAdminPassword(false);
+  }
+
+  function closeIloLicense() {
+    setIloLicenseOpen(false);
+    setSelectedServer(null);
+    setIloLicenseForm({ licenseKey: '', adminUsername: 'hpadmin', adminPassword: '' });
+    setShowLicenseAdminPassword(false);
   }
 
   function closeEnrollment() {
@@ -590,6 +656,36 @@ export function DashboardPage() {
     }
   }
 
+  async function saveIloLicense() {
+    if (!selectedServer) return;
+    const licenseKey = iloLicenseForm.licenseKey.trim();
+    const adminUsername = iloLicenseForm.adminUsername.trim();
+    const adminPassword = iloLicenseForm.adminPassword.trim();
+    if (!licenseKey) {
+      setError('iLO license key is required.');
+      return;
+    }
+    if (!adminUsername || !adminPassword) {
+      setError('Validated iLO credentials or an iLO admin username/password are required.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await createIloLicenseAction(selectedServer.id, {
+        license_key: licenseKey,
+        admin_username: adminUsername,
+        admin_password: adminPassword,
+      });
+      await load();
+      closeIloLicense();
+    } catch {
+      setError('iLO license action could not be queued.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function closeEdit() {
     setEditOpen(false);
     setSelectedServer(null);
@@ -623,6 +719,21 @@ export function DashboardPage() {
       await load();
     } catch {
       setError('Server could not be deleted.');
+    }
+  }
+
+  async function deregisterSelectedServer() {
+    if (!selectedServer) return;
+    const confirmed = window.confirm(`Deregister ${selectedServer.hostname ?? selectedServer.serial_number}?`);
+    closeMenu();
+    if (!confirmed) return;
+
+    try {
+      await deregisterServer(selectedServer.id);
+      setSelectedServer(null);
+      await load();
+    } catch {
+      setError('Server could not be deregistered.');
     }
   }
 
@@ -701,6 +812,10 @@ export function DashboardPage() {
       'Administrator Username',
       'Managed iLO Username',
       'Managed iLO User Created',
+      'Readiness',
+      'Readiness Notes',
+      'iLO License Installed',
+      'iLO License Installed At',
       'Status',
       'Last Seen',
     ];
@@ -729,6 +844,10 @@ export function DashboardPage() {
         credential?.username ?? '',
         managedUser?.username ?? '',
         managedUser?.created ? 'yes' : 'no',
+        server.readiness_status,
+        server.readiness_reasons.join('; '),
+        server.management_config_json?.license?.installed ? 'yes' : 'no',
+        server.management_config_json?.license?.installed_at ?? '',
         server.status,
         server.last_seen,
       ];
@@ -876,6 +995,7 @@ export function DashboardPage() {
                   <MenuItem value="all">All</MenuItem>
                   <MenuItem value="online">Online</MenuItem>
                   <MenuItem value="offline">Offline</MenuItem>
+                  <MenuItem value="deregistered">Deregistered</MenuItem>
                 </TextField>
                 {(filterText || statusFilter !== 'all') && (
                   <Button size="small" startIcon={<ClearIcon />} onClick={clearFilters}>
@@ -910,6 +1030,7 @@ export function DashboardPage() {
                 <TableCell>{sortableHeader('Serial Number', 'serial_number')}</TableCell>
                 <TableCell>{sortableHeader('Agent IP', 'agent_ip')}</TableCell>
                 <TableCell>{sortableHeader('iLO / iDRAC / IPMI IP', 'bmc_ip')}</TableCell>
+                <TableCell>Readiness</TableCell>
                 <TableCell>{sortableHeader('Status', 'status')}</TableCell>
                 <TableCell>{sortableHeader('Last Seen', 'last_seen')}</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -946,6 +1067,25 @@ export function DashboardPage() {
                     </Stack>
                   </TableCell>
                   <TableCell>
+                    <Stack spacing={0.75} alignItems="flex-start">
+                      <ReadinessChip server={server} />
+                      {server.management_config_json?.license?.installed && (
+                        <Chip
+                          size="small"
+                          icon={<VpnKeyIcon />}
+                          label="License installed"
+                          sx={{
+                            bgcolor: '#e7f7ef',
+                            color: '#1f7d55',
+                            border: '1px solid #bfe8d2',
+                            fontWeight: 800,
+                            '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
+                          }}
+                        />
+                      )}
+                    </Stack>
+                  </TableCell>
+                  <TableCell>
                     <StatusChip status={server.status} />
                   </TableCell>
                   <TableCell>{formatDate(server.last_seen)}</TableCell>
@@ -964,7 +1104,7 @@ export function DashboardPage() {
               })}
               {filteredServers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10}>
+                  <TableCell colSpan={11}>
                     <Typography sx={{ py: 4, textAlign: 'center' }} color="text.secondary">
                       {servers.length === 0 ? 'No servers registered yet.' : 'No servers match the current filters.'}
                     </Typography>
@@ -1119,6 +1259,10 @@ export function DashboardPage() {
           <PersonAddAlt1Icon fontSize="small" sx={{ mr: 1 }} />
           Create iLO User
         </MenuItem>
+        <MenuItem onClick={openIloLicense}>
+          <VpnKeyIcon fontSize="small" sx={{ mr: 1 }} />
+          Install iLO License
+        </MenuItem>
         <MenuItem onClick={openIloEnrollment}>
           <QrCodeScannerIcon fontSize="small" sx={{ mr: 1 }} />
           Scan iLO Tag
@@ -1130,6 +1274,10 @@ export function DashboardPage() {
         <MenuItem onClick={removeSelectedServer} sx={{ color: 'error.main' }}>
           <DeleteOutlineIcon fontSize="small" sx={{ mr: 1 }} />
           Delete
+        </MenuItem>
+        <MenuItem onClick={deregisterSelectedServer} sx={{ color: 'text.secondary' }}>
+          <CancelIcon fontSize="small" sx={{ mr: 1 }} />
+          Deregister
         </MenuItem>
       </Menu>
 
@@ -1403,6 +1551,74 @@ export function DashboardPage() {
             }
           >
             Queue User Action
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={iloLicenseOpen} onClose={closeIloLicense} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Install iLO License</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography color="text.secondary">
+              {selectedServer?.hostname ?? selectedServer?.serial_number}
+            </Typography>
+            {!hasUsableActionCredential(selectedServer) && (
+              <Alert severity="warning">
+                iLO license installation needs a validated iLO credential or an Administrator username/password.
+              </Alert>
+            )}
+            <TextField
+              autoFocus
+              fullWidth
+              label="iLO License Key"
+              value={iloLicenseForm.licenseKey}
+              onChange={(event) => setIloLicenseForm({ ...iloLicenseForm, licenseKey: event.target.value })}
+            />
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Admin Username"
+                  value={iloLicenseForm.adminUsername}
+                  onChange={(event) => setIloLicenseForm({ ...iloLicenseForm, adminUsername: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Admin Password"
+                  type={showLicenseAdminPassword ? 'text' : 'password'}
+                  value={iloLicenseForm.adminPassword}
+                  onChange={(event) => setIloLicenseForm({ ...iloLicenseForm, adminPassword: event.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title={showLicenseAdminPassword ? 'Hide password' : 'Show password'} arrow>
+                          <IconButton size="small" onClick={() => setShowLicenseAdminPassword((current) => !current)} edge="end">
+                            {showLicenseAdminPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            </Grid>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeIloLicense}>Cancel</Button>
+          <Button
+            onClick={saveIloLicense}
+            variant="contained"
+            disabled={
+              saving ||
+              !iloLicenseForm.licenseKey.trim() ||
+              !iloLicenseForm.adminUsername.trim() ||
+              !iloLicenseForm.adminPassword.trim()
+            }
+          >
+            Queue License Action
           </Button>
         </DialogActions>
       </Dialog>

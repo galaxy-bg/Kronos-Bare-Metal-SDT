@@ -929,6 +929,42 @@ def redfish_set_ilo_network(root: str, auth: tuple[str, str], management: dict[s
     return {"backend": "redfish", "endpoint": root, "ethernet_interface": ethernet_path, "management": safe_management}
 
 
+def redfish_install_ilo_license(root: str, auth: RedfishAuth, license_key: str) -> dict[str, Any]:
+    manager_path = redfish_first_manager(root, auth).rstrip("/")
+    candidates = [
+        (
+            f"{manager_path}/LicenseService/Actions/HpeiLOLicenseService.InstallLicense",
+            {"LicenseKey": license_key},
+        ),
+        (
+            f"{manager_path}/LicenseService/Actions/Oem/Hpe/HpeiLOLicenseService.InstallLicense",
+            {"LicenseKey": license_key},
+        ),
+        (
+            f"{manager_path}/LicenseService/Licenses",
+            {"LicenseString": license_key},
+        ),
+        (
+            "/redfish/v1/LicenseService/Licenses",
+            {"LicenseString": license_key},
+        ),
+    ]
+    errors: list[str] = []
+    for path, request in candidates:
+        try:
+            result = redfish_request(root, path, method="POST", payload=request, auth=auth)
+            return {
+                "backend": "redfish",
+                "endpoint": root,
+                "license_service": f"{manager_path}/LicenseService",
+                "action": path,
+                "result": result,
+            }
+        except RuntimeError as exc:
+            errors.append(f"{path}: {exc}")
+    raise RuntimeError("; ".join(errors))
+
+
 def run_redfish_action(
     payload: dict[str, Any],
     config: dict[str, str],
@@ -1059,6 +1095,16 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
         if redfish_error:
             result["redfish_error"] = redfish_error
         return {**result, "management": {key: value for key, value in management.items() if key != "password"}}
+
+    if action_type == "hpe_install_ilo_license":
+        license_key = string_value(payload.get("license_key"))
+        if not license_key:
+            raise RuntimeError("license_key is required")
+        return run_redfish_action(
+            payload,
+            config,
+            lambda root, auth: redfish_install_ilo_license(root, auth, license_key),
+        )
 
     raise RuntimeError(f"Unsupported action type: {action_type}")
 

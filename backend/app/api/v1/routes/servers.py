@@ -21,6 +21,7 @@ from app.schemas.action import (
     IloEnrollmentCreateResponse,
     IloEnrollmentRead,
     IloEnrollmentSubmit,
+    IloLicenseActionRequest,
     IloNetworkActionRequest,
     IloUserActionRequest,
     ServerActionRead,
@@ -141,8 +142,66 @@ def enriched_inventory_json(server: Server, inventory_json: dict[str, Any] | Non
     return enriched
 
 
-def server_to_read(server: Server) -> dict[str, Any]:
+def conflict_index(servers: list[Server]) -> dict[int, dict[str, list[dict[str, str]]]]:
+    conflicts: dict[int, dict[str, list[dict[str, str]]]] = {server.id: {} for server in servers}
+
+    for field_name in ("agent_ip", "bmc_ip"):
+        seen: dict[str, list[Server]] = {}
+        for server in servers:
+            if server.status == "deregistered":
+                continue
+            value = getattr(server, field_name)
+            if not value:
+                continue
+            seen.setdefault(str(value), []).append(server)
+
+        for value, matches in seen.items():
+            if len(matches) < 2:
+                continue
+            for server in matches:
+                conflicts[server.id][field_name] = [
+                    {"serial_number": match.serial_number, "hostname": match.hostname or "", "value": value}
+                    for match in matches
+                    if match.id != server.id
+                ]
+
+    return conflicts
+
+
+def readiness_for_server(server: Server, conflicts: dict[str, Any]) -> tuple[str, list[str]]:
+    if server.status == "deregistered":
+        return "deregistered", ["Server is deregistered."]
+
+    reasons: list[str] = []
+    if conflicts:
+        reasons.append("Duplicate agent or BMC IP detected.")
+
+    config = server.management_config_json or {}
+    credential = config.get("credential")
+    managed_user = config.get("managed_user")
+    credential_ready = isinstance(credential, dict) and bool(credential.get("username") and credential.get("password") and credential.get("verified"))
+    managed_ready = isinstance(managed_user, dict) and bool(managed_user.get("username") and managed_user.get("password") and managed_user.get("created"))
+
+    if not server.bmc_ip:
+        reasons.append("BMC/iLO IP is not known yet.")
+    if not credential_ready and not managed_ready:
+        reasons.append("Validated iLO credential is missing.")
+
+    if conflicts:
+        return "conflict", reasons
+    if server.bmc_ip and managed_ready:
+        return "ready", reasons or ["Ready for protected iLO actions."]
+    if server.bmc_ip and credential_ready:
+        return "credential_validated", reasons or ["iLO credential is validated; managed user can be created."]
+    if server.bmc_ip:
+        return "needs_credential", reasons
+    return "registered", reasons
+
+
+def server_to_read(server: Server, conflicts: dict[str, Any] | None = None) -> dict[str, Any]:
     latest_inventory = enriched_inventory_json(server, server.inventories[0].inventory_json) if server.inventories else None
+    conflict_data = conflicts or {}
+    readiness_status, readiness_reasons = readiness_for_server(server, conflict_data)
     return {
         "id": server.id,
         "uuid": server.uuid,
@@ -155,6 +214,10 @@ def server_to_read(server: Server) -> dict[str, Any]:
         "bmc_ip": server.bmc_ip,
         "management_config_json": server.management_config_json,
         "latest_inventory_json": latest_inventory,
+        "registration_status": "deregistered" if server.status == "deregistered" else "registered",
+        "readiness_status": readiness_status,
+        "readiness_reasons": readiness_reasons,
+        "conflicts": conflict_data,
         "agent_reachable": ping_ip(server.agent_ip),
         "bmc_reachable": ping_ip(server.bmc_ip),
         "status": server.status,
@@ -164,8 +227,8 @@ def server_to_read(server: Server) -> dict[str, Any]:
     }
 
 
-def server_to_detail(server: Server) -> dict[str, Any]:
-    data = server_to_read(server)
+def server_to_detail(server: Server, conflicts: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = server_to_read(server, conflicts)
     inventories = []
     for index, inventory in enumerate(server.inventories):
         inventory_json = inventory.inventory_json
@@ -223,13 +286,14 @@ def require_ilo_auth(auth_username: str | None, auth_password: str | None) -> tu
 def list_servers(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     refresh_server_statuses(db)
     servers = db.scalars(select(Server).options(selectinload(Server.inventories)).order_by(Server.serial_number)).all()
-    return [server_to_read(server) for server in servers]
+    conflicts = conflict_index(servers)
+    return [server_to_read(server, conflicts.get(server.id, {})) for server in servers]
 
 
 @router.get("/stats", response_model=DashboardStats)
 def dashboard_stats(db: Session = Depends(get_db)) -> DashboardStats:
     refresh_server_statuses(db)
-    total = db.scalar(select(func.count(Server.id))) or 0
+    total = db.scalar(select(func.count(Server.id)).where(Server.status != "deregistered")) or 0
     online = db.scalar(select(func.count(Server.id)).where(Server.status == "online")) or 0
     offline = db.scalar(select(func.count(Server.id)).where(Server.status == "offline")) or 0
     return DashboardStats(total_servers=total, online_servers=online, offline_servers=offline)
@@ -351,7 +415,9 @@ def get_server(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     )
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
-    return server_to_detail(server)
+    all_servers = db.scalars(select(Server)).all()
+    conflicts = conflict_index(all_servers)
+    return server_to_detail(server, conflicts.get(server.id, {}))
 
 
 @router.patch("/{server_id}", response_model=ServerRead)
@@ -368,11 +434,25 @@ def update_server(server_id: int, payload: ServerUpdate, db: Session = Depends(g
     return server_to_read(server)
 
 
+@router.post("/{server_id}/deregister", response_model=ServerRead)
+def deregister_server(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    server.status = "deregistered"
+    db.commit()
+    db.refresh(server)
+    all_servers = db.scalars(select(Server).options(selectinload(Server.inventories))).all()
+    conflicts = conflict_index(all_servers)
+    return server_to_read(server, conflicts.get(server.id, {}))
+
+
 def mask_secret_fields(value: Any) -> Any:
     if isinstance(value, dict):
         masked: dict[str, Any] = {}
         for key, item in value.items():
-            if "password" in key.lower():
+            if "password" in key.lower() or "license_key" in key.lower():
                 masked[key] = "********"
             else:
                 masked[key] = mask_secret_fields(item)
@@ -465,6 +545,33 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
     current.update(management_config)
     server.management_config_json = current
 
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
+
+
+@router.post("/{server_id}/actions/hpe-install-ilo-license", response_model=ServerActionRead, status_code=status.HTTP_201_CREATED)
+def install_ilo_license_action(server_id: int, payload: IloLicenseActionRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    auth_username, auth_password = preferred_ilo_auth(server, payload.admin_username, payload.admin_password)
+    auth_username, auth_password = require_ilo_auth(auth_username, auth_password)
+
+    action = ServerAction(
+        server_id=server.id,
+        action_type="hpe_install_ilo_license",
+        payload_json={
+            "license_key": payload.license_key,
+            "bmc_ip": server.bmc_ip,
+            "auth": {
+                "username": auth_username,
+                "password": auth_password,
+            },
+        },
+    )
     db.add(action)
     db.commit()
     db.refresh(action)

@@ -22,11 +22,26 @@ export type ManagementConfig = {
     source?: string | null;
   } | null;
   dns_name?: string | null;
+  license?: {
+    installed?: boolean;
+    installed_at?: string | null;
+    source?: string | null;
+    backend?: string | null;
+    endpoint?: string | null;
+    license_service?: string | null;
+    action?: string | null;
+  } | null;
 };
 
 export type IloUserActionPayload = {
   username: string;
   password: string;
+  admin_username?: string | null;
+  admin_password?: string | null;
+};
+
+export type IloLicenseActionPayload = {
+  license_key: string;
   admin_username?: string | null;
   admin_password?: string | null;
 };
@@ -62,6 +77,10 @@ export type ServerSummary = {
   bmc_ip: string | null;
   management_config_json: ManagementConfig | null;
   latest_inventory_json: Record<string, unknown> | null;
+  registration_status: string;
+  readiness_status: string;
+  readiness_reasons: string[];
+  conflicts: Record<string, unknown>;
   agent_reachable: boolean | null;
   bmc_reachable: boolean | null;
   status: 'online' | 'offline' | string;

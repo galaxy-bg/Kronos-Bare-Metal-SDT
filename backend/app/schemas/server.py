@@ -24,6 +24,10 @@ class ServerRead(BaseModel):
     bmc_ip: str | None
     management_config_json: dict[str, Any] | None = None
     latest_inventory_json: dict[str, Any] | None = None
+    registration_status: str = "registered"
+    readiness_status: str = "registered"
+    readiness_reasons: list[str] = Field(default_factory=list)
+    conflicts: dict[str, Any] = Field(default_factory=dict)
     agent_reachable: bool | None = None
     bmc_reachable: bool | None = None
     status: str
