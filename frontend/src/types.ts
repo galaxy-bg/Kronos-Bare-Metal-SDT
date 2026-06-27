@@ -45,6 +45,12 @@ export type ManagementConfig = {
     endpoint?: string | null;
     updated_at?: string | null;
   } | null;
+  agent?: {
+    version?: string | null;
+    build?: string | null;
+    reported_at?: string | null;
+    source?: string | null;
+  } | null;
 };
 
 export type IloUserActionPayload = {

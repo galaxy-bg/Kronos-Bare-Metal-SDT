@@ -122,6 +122,12 @@ function networkInterfacesFor(server: ServerSummary) {
   return Array.isArray(network) ? network.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : [];
 }
 
+function agentVersionLabel(server: ServerSummary) {
+  const agent = server.management_config_json?.agent;
+  if (!agent?.version) return '-';
+  return agent.build ? `${agent.version} (${agent.build})` : agent.version;
+}
+
 type ServerSortKey =
   | 'hostname'
   | 'vendor'
@@ -876,6 +882,9 @@ export function DashboardPage() {
       'Product ID',
       'Serial Number',
       'Agent IP',
+      'Agent Version',
+      'Agent Build',
+      'Agent Reported At',
       'iLO / iDRAC / IPMI IP',
       'iLO DNS Name',
       'iLO Credential Validated',
@@ -910,6 +919,9 @@ export function DashboardPage() {
         server.product_name ?? '',
         server.serial_number,
         server.agent_ip ?? '',
+        server.management_config_json?.agent?.version ?? '',
+        server.management_config_json?.agent?.build ?? '',
+        server.management_config_json?.agent?.reported_at ?? '',
         server.bmc_ip ?? '',
         server.management_config_json?.dns_name ?? '',
         credential?.verified ? 'yes' : 'no',
@@ -1104,6 +1116,7 @@ export function DashboardPage() {
                 <TableCell>{sortableHeader('Model', 'model')}</TableCell>
                 <TableCell>{sortableHeader('Serial Number', 'serial_number')}</TableCell>
                 <TableCell>{sortableHeader('Agent IP', 'agent_ip')}</TableCell>
+                <TableCell>Agent</TableCell>
                 <TableCell>{sortableHeader('iLO / iDRAC / IPMI IP', 'bmc_ip')}</TableCell>
                 <TableCell>Readiness</TableCell>
                 <TableCell>Health</TableCell>
@@ -1135,6 +1148,16 @@ export function DashboardPage() {
                   <TableCell>{server.serial_number}</TableCell>
                   <TableCell>
                     <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip title={server.management_config_json?.agent?.reported_at ? `Reported ${formatDate(server.management_config_json.agent.reported_at)}` : 'Agent version not reported yet'}>
+                      <Chip
+                        size="small"
+                        label={agentVersionLabel(server)}
+                        variant={server.management_config_json?.agent?.version ? 'filled' : 'outlined'}
+                        sx={{ fontWeight: 800 }}
+                      />
+                    </Tooltip>
                   </TableCell>
                   <TableCell>
                     <Stack spacing={0.75} alignItems="flex-start">

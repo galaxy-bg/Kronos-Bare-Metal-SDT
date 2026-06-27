@@ -19,6 +19,8 @@ from xml.etree import ElementTree as ET
 
 
 DEFAULT_CONFIG = "/etc/kdx-agent/agent.env"
+AGENT_VERSION = "1.1.0"
+AGENT_BUILD = "2026-06-27"
 HPE_TOOL_CANDIDATES = {
     "hponcfg": ["/usr/local/bin/hponcfg", "/sbin/hponcfg", "/usr/sbin/hponcfg", "/usr/bin/hponcfg"],
     "ilorest": ["/usr/local/bin/ilorest", "/usr/sbin/ilorest", "/usr/bin/ilorest", "/opt/ilorest/ilorest"],
@@ -63,6 +65,13 @@ def read_env_file(path: str) -> dict[str, str]:
 
 def setting(config: dict[str, str], key: str, default: str | None = None) -> str | None:
     return os.environ.get(key) or config.get(key) or default
+
+
+def agent_metadata(config: dict[str, str]) -> dict[str, str]:
+    return {
+        "agent_version": setting(config, "KDX_AGENT_VERSION", AGENT_VERSION) or AGENT_VERSION,
+        "agent_build": setting(config, "KDX_AGENT_BUILD", AGENT_BUILD) or AGENT_BUILD,
+    }
 
 
 def run(command: list[str], timeout: int = 10) -> str:
@@ -1365,6 +1374,7 @@ def poll_and_execute_actions(controller: str, serial: str, config: dict[str, str
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="KDX SDT live agent.")
+    parser.add_argument("--version", action="store_true", help="Print agent version and exit.")
     parser.add_argument("--config", default=DEFAULT_CONFIG, help="Path to agent env config.")
     parser.add_argument("--controller", default=None, help="KDX controller URL.")
     parser.add_argument("--interface", default=None, help="Network interface used for agent IP discovery.")
@@ -1376,6 +1386,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     config = read_env_file(args.config)
+    metadata = agent_metadata(config)
+    if args.version:
+        print(f"kdx-agent {metadata['agent_version']} ({metadata['agent_build']})")
+        return 0
+
     controller = args.controller or setting(config, "KDX_CONTROLLER_URL", "http://192.168.88.240:8000")
     interface = args.interface or setting(config, "KDX_AGENT_INTERFACE")
     interval = args.heartbeat_interval or int(setting(config, "KDX_HEARTBEAT_INTERVAL", "60") or "60")
@@ -1398,6 +1413,7 @@ def main() -> int:
         "hostname": hostname,
         "agent_ip": agent_ip,
         "bmc_ip": bmc_ip,
+        **metadata,
     }
 
     print(f"Registering {serial} to {controller}")
@@ -1415,7 +1431,7 @@ def main() -> int:
     next_inventory_refresh = time.monotonic() + inventory_refresh_interval
     print(f"Sending heartbeat every {interval} seconds")
     while True:
-        payload = {"serial_number": serial, "agent_ip": get_agent_ip(interface)}
+        payload = {"serial_number": serial, "agent_ip": get_agent_ip(interface), **metadata}
         result = post_json(controller, "/api/v1/agents/heartbeat", payload)
         print(f"heartbeat ok: {result.get('serial_number', serial)}")
         poll_and_execute_actions(controller, serial, config, system.get("vendor"))

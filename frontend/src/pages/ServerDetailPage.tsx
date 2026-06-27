@@ -144,6 +144,9 @@ export function ServerDetailPage() {
             title="Management"
             rows={[
               ['Agent IP', <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />],
+              ['Agent Version', server.management_config_json?.agent?.version ?? '-'],
+              ['Agent Build', server.management_config_json?.agent?.build ?? '-'],
+              ['Agent Reported', server.management_config_json?.agent?.reported_at ? formatDate(server.management_config_json.agent.reported_at) : '-'],
               ['iLO / iDRAC / IPMI IP', <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />],
               ['Subnet', server.management_config_json?.subnet ?? '-'],
               ['Gateway', server.management_config_json?.gateway ?? '-'],

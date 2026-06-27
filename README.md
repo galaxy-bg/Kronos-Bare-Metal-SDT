@@ -132,6 +132,7 @@ are missing, it stores a mocked refresh result instead of failing the MVP flow.
 - Inventory upload
 - Server list and server detail UI
 - Recent task tracking
+- KDX agent version/build reporting in registration, heartbeat, server detail, and deployment reports
 - HPE iLO credential validation and managed `hpadmin` workflow
 - HPE iLO management IP, user, and license actions through the live agent
 - Adapter-backed HPE Redfish read-only inventory refresh
@@ -147,6 +148,25 @@ are missing, it stores a mocked refresh result instead of failing the MVP flow.
 - Power actions through queued jobs
 - OS deployment workflow
 - Durable job queue and worker execution model
+
+## Agent Versioning
+
+The live ISO agent reports its version during registration and every heartbeat.
+The controller stores this under each server's `management_config_json.agent`
+metadata and shows it in the server list, server detail page, and deployment
+CSV report.
+
+Current agent version is tracked in:
+
+- `agent/VERSION`
+- `agent/kdx-agent.py` as `AGENT_VERSION`
+- [CHANGELOG.md](CHANGELOG.md)
+
+Runtime overrides are available for lab builds:
+
+```bash
+KDX_AGENT_VERSION=1.1.0 KDX_AGENT_BUILD=lab-v6 ./agent/kdx-agent.py --once
+```
 
 Lab control plane profile:
 

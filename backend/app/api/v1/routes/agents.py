@@ -85,6 +85,42 @@ def compact_health_result(value: object) -> dict:
     )
 
 
+def apply_agent_version(server: Server, agent_version: str | None, agent_build: str | None, source: str) -> None:
+    if not agent_version and not agent_build:
+        return
+    current = merged_management_config(server)
+    previous_agent = current.get("agent")
+    agent = dict(previous_agent) if isinstance(previous_agent, dict) else {}
+    if agent_version:
+        agent["version"] = agent_version
+    if agent_build:
+        agent["build"] = agent_build
+    agent["reported_at"] = datetime.now(UTC).isoformat()
+    agent["source"] = source
+    current["agent"] = compact_management_config(agent)
+    server.management_config_json = compact_management_config(current)
+
+
+def initial_management_config(now: datetime, payload: AgentRegistration) -> dict:
+    config = {
+        "registration": {
+            "status": "registered",
+            "registered_at": now.isoformat(),
+        }
+    }
+    agent = compact_management_config(
+        {
+            "version": payload.agent_version,
+            "build": payload.agent_build,
+            "reported_at": now.isoformat() if payload.agent_version or payload.agent_build else None,
+            "source": "registration" if payload.agent_version or payload.agent_build else None,
+        }
+    )
+    if agent:
+        config["agent"] = agent
+    return config
+
+
 def reject_deregistered(server: Server) -> None:
     if server.status == "deregistered":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Server is deregistered")
@@ -105,12 +141,7 @@ def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) ->
             hostname=payload.hostname or default_hostname(payload.serial_number),
             agent_ip=payload.agent_ip,
             bmc_ip=payload.bmc_ip,
-            management_config_json={
-                "registration": {
-                    "status": "registered",
-                    "registered_at": now.isoformat(),
-                }
-            },
+            management_config_json=initial_management_config(now, payload),
             status="online",
             last_seen=now,
         )
@@ -132,6 +163,7 @@ def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) ->
             }
         )
         server.management_config_json = compact_management_config(current)
+        apply_agent_version(server, payload.agent_version, payload.agent_build, "registration")
         server.status = "online"
         server.last_seen = now
 
@@ -151,6 +183,7 @@ def heartbeat(payload: AgentHeartbeat, db: Session = Depends(get_db)) -> Server:
     server.last_seen = datetime.now(UTC)
     if payload.agent_ip is not None:
         server.agent_ip = payload.agent_ip
+    apply_agent_version(server, payload.agent_version, payload.agent_build, "heartbeat")
 
     db.commit()
     db.refresh(server)

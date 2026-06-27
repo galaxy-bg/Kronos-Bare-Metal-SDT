@@ -11,11 +11,15 @@ class AgentRegistration(BaseModel):
     hostname: str | None = None
     agent_ip: str | None = None
     bmc_ip: str | None = None
+    agent_version: str | None = None
+    agent_build: str | None = None
 
 
 class AgentHeartbeat(BaseModel):
     serial_number: str
     agent_ip: str | None = None
+    agent_version: str | None = None
+    agent_build: str | None = None
 
 
 class AgentActionPoll(BaseModel):
