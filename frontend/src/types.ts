@@ -35,6 +35,16 @@ export type ManagementConfig = {
     action?: string | null;
     license_key?: string | null;
   } | null;
+  health?: {
+    overall?: string | null;
+    manager?: string | null;
+    system?: string | null;
+    chassis?: string | null;
+    power_state?: string | null;
+    detected_by?: string | null;
+    endpoint?: string | null;
+    updated_at?: string | null;
+  } | null;
 };
 
 export type IloUserActionPayload = {

@@ -803,6 +803,10 @@ def redfish_create_ilo_user_and_refresh_bmc(
         )
     except RuntimeError as exc:
         result["license_error"] = str(exc)
+    try:
+        result["health"] = redfish_read_ilo_health(root, auth)
+    except RuntimeError as exc:
+        result["health_error"] = str(exc)
     return result
 
 
@@ -860,6 +864,10 @@ def redfish_verify_ilo_credential(root: str, auth: RedfishAuth, payload: dict[st
         result["license"] = redfish_read_ilo_license(root, auth, string_value(bmc.get("ip")))
     except RuntimeError as exc:
         result["license_error"] = str(exc)
+    try:
+        result["health"] = redfish_read_ilo_health(root, auth)
+    except RuntimeError as exc:
+        result["health_error"] = str(exc)
 
     if payload.get("create_managed_user"):
         managed_user = string_value(setting(config, "KDX_DEFAULT_ILO_USER", "hpadmin")) or "hpadmin"
@@ -943,9 +951,9 @@ def redfish_set_ilo_network(root: str, auth: tuple[str, str], management: dict[s
 
 def license_edition_from_text(value: str) -> str | None:
     normalized = value.lower()
-    if "advanced" in normalized:
+    if "advanced" in normalized or "<ltier>adv</ltier>" in normalized or '"ltier": "adv"' in normalized:
         return "Advanced"
-    if "essentials" in normalized:
+    if "essentials" in normalized or "<ltier>ess</ltier>" in normalized:
         return "Essentials"
     if "standard" in normalized:
         return "Standard"
@@ -972,6 +980,19 @@ def license_key_from_text(value: str) -> str | None:
     return None
 
 
+def license_xml_value(value: str, tag_name: str) -> str | None:
+    try:
+        root = ET.fromstring(value)
+    except ET.ParseError:
+        return None
+    for element in root.iter():
+        tag = element.tag.split("}", 1)[-1].lower()
+        text = string_value(element.text)
+        if tag == tag_name.lower() and text:
+            return text
+    return None
+
+
 def fetch_ilo_xmldata_license(bmc_ip: str) -> dict[str, Any]:
     errors: list[str] = []
     for scheme in ("https", "http"):
@@ -994,6 +1015,10 @@ def fetch_ilo_xmldata_license(bmc_ip: str) -> dict[str, Any]:
             "detected_by": "xmldata-cpqkey",
             "endpoint": url,
             "license_key": license_key_from_text(body),
+            "license_name": license_xml_value(body, "LNAME"),
+            "license_tier": license_xml_value(body, "LTIER"),
+            "license_state": license_xml_value(body, "LSTATE"),
+            "serial_number": license_xml_value(body, "SBSN"),
         }
     raise RuntimeError("; ".join(errors) or f"Could not read CpqKey XML from {bmc_ip}")
 
@@ -1048,6 +1073,74 @@ def redfish_read_ilo_license(root: str, auth: RedfishAuth, bmc_ip: str | None = 
     }
 
 
+def health_status_value(payload: dict[str, Any]) -> str | None:
+    status = payload.get("Status")
+    if isinstance(status, dict):
+        return string_value(status.get("HealthRollup") or status.get("Health"))
+    return None
+
+
+def normalize_health_status(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"ok", "healthy"}:
+        return "healthy"
+    if normalized in {"warning", "degraded"}:
+        return "degraded"
+    if normalized in {"critical", "failed"}:
+        return "critical"
+    return normalized
+
+
+def worst_health_status(values: list[str | None]) -> str:
+    rank = {"unknown": 0, "healthy": 1, "degraded": 2, "critical": 3}
+    current = "unknown"
+    for value in values:
+        normalized = normalize_health_status(value)
+        if normalized and rank.get(normalized, 0) > rank.get(current, 0):
+            current = normalized
+    return current
+
+
+def redfish_first_system(root: str, auth: RedfishAuth) -> str:
+    collection = redfish_request(root, "/redfish/v1/Systems/", auth=auth)
+    members = redfish_members(collection)
+    if not members:
+        raise RuntimeError("Redfish system collection has no members")
+    return members[0]
+
+
+def redfish_read_ilo_health(root: str, auth: RedfishAuth) -> dict[str, Any]:
+    manager_path = redfish_first_manager(root, auth).rstrip("/")
+    system_path = redfish_first_system(root, auth).rstrip("/")
+    manager = redfish_request(root, manager_path, auth=auth)
+    system = redfish_request(root, system_path, auth=auth)
+    chassis_values: list[str | None] = []
+    try:
+        chassis_collection = redfish_request(root, "/redfish/v1/Chassis/", auth=auth)
+        for chassis_path in redfish_members(chassis_collection):
+            chassis = redfish_request(root, chassis_path, auth=auth)
+            chassis_values.append(health_status_value(chassis))
+    except RuntimeError:
+        pass
+
+    manager_health = normalize_health_status(health_status_value(manager))
+    system_health = normalize_health_status(health_status_value(system))
+    chassis_health = worst_health_status(chassis_values) if chassis_values else None
+    overall = worst_health_status([manager_health, system_health, chassis_health])
+
+    return {
+        "overall": overall,
+        "manager": manager_health,
+        "system": system_health,
+        "chassis": chassis_health,
+        "power_state": system.get("PowerState"),
+        "detected_by": "redfish-status",
+        "endpoint": root,
+    }
+
+
 def redfish_install_ilo_license(root: str, auth: RedfishAuth, license_key: str) -> dict[str, Any]:
     manager_path = redfish_first_manager(root, auth).rstrip("/")
     try:
@@ -1093,6 +1186,7 @@ def redfish_install_ilo_license(root: str, auth: RedfishAuth, license_key: str) 
                 "action": path,
                 "result": result,
                 "license": redfish_read_ilo_license(root, auth),
+                "health": redfish_read_ilo_health(root, auth),
             }
         except RuntimeError as exc:
             errors.append(f"{path}: {exc}")

@@ -55,6 +55,10 @@ def compact_license_result(value: object, license_key: str | None = None) -> dic
         "detected_by": value.get("detected_by"),
         "endpoint": value.get("endpoint"),
         "license_service": value.get("license_service"),
+        "license_name": value.get("license_name"),
+        "license_tier": value.get("license_tier"),
+        "license_state": value.get("license_state"),
+        "serial_number": value.get("serial_number"),
         "updated_at": datetime.now(UTC).isoformat(),
     }
     if license_key:
@@ -62,6 +66,23 @@ def compact_license_result(value: object, license_key: str | None = None) -> dic
     elif value.get("license_key"):
         license_result["license_key"] = value.get("license_key")
     return compact_management_config(license_result)
+
+
+def compact_health_result(value: object) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    return compact_management_config(
+        {
+            "overall": value.get("overall") or "unknown",
+            "manager": value.get("manager"),
+            "system": value.get("system"),
+            "chassis": value.get("chassis"),
+            "power_state": value.get("power_state"),
+            "detected_by": value.get("detected_by"),
+            "endpoint": value.get("endpoint"),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    )
 
 
 def reject_deregistered(server: Server) -> None:
@@ -251,6 +272,9 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
         license_result = result.get("license") if isinstance(result, dict) else None
         if isinstance(license_result, dict):
             current["license"] = compact_license_result(license_result)
+        health_result = result.get("health") if isinstance(result, dict) else None
+        if isinstance(health_result, dict):
+            current["health"] = compact_health_result(health_result)
         server.management_config_json = compact_management_config(current)
 
     if action.action_type == "hpe_create_ilo_user" and payload.status == "succeeded":
@@ -279,6 +303,9 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
         license_result = result.get("license") if isinstance(result, dict) else None
         if isinstance(license_result, dict):
             current["license"] = compact_license_result(license_result)
+        health_result = result.get("health") if isinstance(result, dict) else None
+        if isinstance(health_result, dict):
+            current["health"] = compact_health_result(health_result)
         current["managed_user"] = compact_management_config(
             {
                 "username": original_payload.get("username") if isinstance(original_payload, dict) else None,
@@ -310,6 +337,9 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
             )
         )
         current["license"] = compact_management_config(current_license)
+        health_result = result.get("health") if isinstance(result, dict) else None
+        if isinstance(health_result, dict):
+            current["health"] = compact_health_result(health_result)
         server.management_config_json = compact_management_config(current)
 
     db.commit()

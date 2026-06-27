@@ -151,6 +151,8 @@ export function ServerDetailPage() {
               ['NTP', server.management_config_json?.ntp ?? '-'],
               ['VLAN', server.management_config_json?.vlan === '0' ? '0 (Access / Untagged)' : server.management_config_json?.vlan ?? '-'],
               ['iLO License', server.management_config_json?.license?.edition ?? '-'],
+              ['Hardware Health', server.management_config_json?.health?.overall ?? '-'],
+              ['Power State', server.management_config_json?.health?.power_state ?? '-'],
               ['Created', formatDate(server.created_at)],
               ['Updated', formatDate(server.updated_at)],
             ]}

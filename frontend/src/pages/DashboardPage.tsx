@@ -358,6 +358,45 @@ function LicenseChip({ server }: { server: ServerSummary }) {
   );
 }
 
+function HealthChip({ server }: { server: ServerSummary }) {
+  const health = server.management_config_json?.health;
+  const overall = (health?.overall ?? 'unknown').toLowerCase();
+  const variants: Record<string, { label: string; color: string; bg: string; border: string; icon: ReactElement }> = {
+    healthy: { label: 'Healthy', color: '#1f7d55', bg: '#e7f7ef', border: '#bfe8d2', icon: <CheckCircleIcon /> },
+    degraded: { label: 'Degraded', color: '#75611d', bg: '#fff8df', border: '#ead58a', icon: <ErrorOutlineIcon /> },
+    critical: { label: 'Critical', color: '#b23b32', bg: '#fff1ef', border: '#f2c4bf', icon: <ErrorOutlineIcon /> },
+    unknown: { label: 'Unknown', color: '#62666f', bg: '#f3f5f5', border: '#dfe5e3', icon: <HelpOutlineIcon /> },
+  };
+  const variant = variants[overall] ?? variants.unknown;
+  const title = [
+    `Overall: ${variant.label}`,
+    health?.manager ? `Manager: ${health.manager}` : null,
+    health?.system ? `System: ${health.system}` : null,
+    health?.chassis ? `Chassis: ${health.chassis}` : null,
+    health?.power_state ? `Power: ${health.power_state}` : null,
+    health?.updated_at ? `Updated: ${formatDate(health.updated_at)}` : null,
+    health?.detected_by ? `Detected by: ${health.detected_by}` : null,
+  ].filter(Boolean).join('\n');
+
+  return (
+    <Tooltip title={<Box sx={{ whiteSpace: 'pre-line' }}>{title}</Box>} arrow>
+      <Chip
+        size="small"
+        icon={variant.icon}
+        label={variant.label}
+        sx={{
+          bgcolor: variant.bg,
+          color: variant.color,
+          border: '1px solid',
+          borderColor: variant.border,
+          fontWeight: 800,
+          '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
+        }}
+      />
+    </Tooltip>
+  );
+}
+
 function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
   const label = reachable === null ? 'Unknown' : reachable ? 'Online' : 'Offline';
   const title = reachable === null ? 'Connection status is unknown' : reachable ? 'Connection available' : 'Connection unavailable';
@@ -848,6 +887,8 @@ export function DashboardPage() {
       'Readiness Notes',
       'iLO License Edition',
       'iLO License Updated At',
+      'Hardware Health',
+      'Power State',
       'Status',
       'Last Seen',
     ];
@@ -880,6 +921,8 @@ export function DashboardPage() {
         server.readiness_reasons.join('; '),
         server.management_config_json?.license?.edition ?? '',
         server.management_config_json?.license?.updated_at ?? server.management_config_json?.license?.installed_at ?? '',
+        server.management_config_json?.health?.overall ?? '',
+        server.management_config_json?.health?.power_state ?? '',
         server.status,
         server.last_seen,
       ];
@@ -1063,6 +1106,7 @@ export function DashboardPage() {
                 <TableCell>{sortableHeader('Agent IP', 'agent_ip')}</TableCell>
                 <TableCell>{sortableHeader('iLO / iDRAC / IPMI IP', 'bmc_ip')}</TableCell>
                 <TableCell>Readiness</TableCell>
+                <TableCell>Health</TableCell>
                 <TableCell>{sortableHeader('Status', 'status')}</TableCell>
                 <TableCell>{sortableHeader('Last Seen', 'last_seen')}</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -1103,6 +1147,9 @@ export function DashboardPage() {
                       <ReadinessChip server={server} />
                       {server.management_config_json?.license && <LicenseChip server={server} />}
                     </Stack>
+                  </TableCell>
+                  <TableCell>
+                    <HealthChip server={server} />
                   </TableCell>
                   <TableCell>
                     <StatusChip status={server.status} />
