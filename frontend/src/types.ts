@@ -23,13 +23,17 @@ export type ManagementConfig = {
   } | null;
   dns_name?: string | null;
   license?: {
+    edition?: string | null;
     installed?: boolean;
     installed_at?: string | null;
+    updated_at?: string | null;
+    detected_by?: string | null;
     source?: string | null;
     backend?: string | null;
     endpoint?: string | null;
     license_service?: string | null;
     action?: string | null;
+    license_key?: string | null;
   } | null;
 };
 

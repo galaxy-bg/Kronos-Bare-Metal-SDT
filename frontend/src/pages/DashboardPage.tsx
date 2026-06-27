@@ -326,6 +326,38 @@ function ReadinessChip({ server }: { server: ServerSummary }) {
   );
 }
 
+function LicenseChip({ server }: { server: ServerSummary }) {
+  const license = server.management_config_json?.license;
+  const edition = license?.edition ?? 'Unknown';
+  const active = edition === 'Advanced' || edition === 'Essentials' || Boolean(license?.installed);
+  const standard = edition === 'Standard';
+  const label = edition === 'Unknown' ? 'License Unknown' : `iLO ${edition}`;
+  const title = [
+    `Edition: ${edition}`,
+    license?.updated_at ? `Updated: ${formatDate(license.updated_at)}` : null,
+    license?.detected_by ? `Detected by: ${license.detected_by}` : null,
+    license?.source ? `Source: ${license.source}` : null,
+  ].filter(Boolean).join('\n');
+
+  return (
+    <Tooltip title={<Box sx={{ whiteSpace: 'pre-line' }}>{title}</Box>} arrow>
+      <Chip
+        size="small"
+        icon={<VpnKeyIcon />}
+        label={label}
+        sx={{
+          bgcolor: active ? '#e7f7ef' : standard ? '#f3f5f5' : '#fff8df',
+          color: active ? '#1f7d55' : standard ? '#62666f' : '#75611d',
+          border: '1px solid',
+          borderColor: active ? '#bfe8d2' : standard ? '#dfe5e3' : '#ead58a',
+          fontWeight: 800,
+          '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
+        }}
+      />
+    </Tooltip>
+  );
+}
+
 function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
   const label = reachable === null ? 'Unknown' : reachable ? 'Online' : 'Offline';
   const title = reachable === null ? 'Connection status is unknown' : reachable ? 'Connection available' : 'Connection unavailable';
@@ -814,12 +846,12 @@ export function DashboardPage() {
       'Managed iLO User Created',
       'Readiness',
       'Readiness Notes',
-      'iLO License Installed',
-      'iLO License Installed At',
+      'iLO License Edition',
+      'iLO License Updated At',
       'Status',
       'Last Seen',
     ];
-    const passwordHeader = ['Administrator Password', 'Managed iLO Password'];
+    const passwordHeader = ['Administrator Password', 'Managed iLO Password', 'iLO License Key'];
     const nicHeader = ['NIC Interfaces', 'NIC MAC Addresses'];
     const header = [
       ...baseHeader,
@@ -846,12 +878,12 @@ export function DashboardPage() {
         managedUser?.created ? 'yes' : 'no',
         server.readiness_status,
         server.readiness_reasons.join('; '),
-        server.management_config_json?.license?.installed ? 'yes' : 'no',
-        server.management_config_json?.license?.installed_at ?? '',
+        server.management_config_json?.license?.edition ?? '',
+        server.management_config_json?.license?.updated_at ?? server.management_config_json?.license?.installed_at ?? '',
         server.status,
         server.last_seen,
       ];
-      const passwordRow = [credential?.password ?? '', managedUser?.password ?? ''];
+      const passwordRow = [credential?.password ?? '', managedUser?.password ?? '', server.management_config_json?.license?.license_key ?? ''];
       const nicRow = [
         interfaces.map((item) => item.name).filter(Boolean).join('; '),
         interfaces.map((item) => item.mac).filter(Boolean).join('; '),
@@ -1069,20 +1101,7 @@ export function DashboardPage() {
                   <TableCell>
                     <Stack spacing={0.75} alignItems="flex-start">
                       <ReadinessChip server={server} />
-                      {server.management_config_json?.license?.installed && (
-                        <Chip
-                          size="small"
-                          icon={<VpnKeyIcon />}
-                          label="License installed"
-                          sx={{
-                            bgcolor: '#e7f7ef',
-                            color: '#1f7d55',
-                            border: '1px solid #bfe8d2',
-                            fontWeight: 800,
-                            '& .MuiChip-icon': { color: 'inherit', fontSize: 16 },
-                          }}
-                        />
-                      )}
+                      {server.management_config_json?.license && <LicenseChip server={server} />}
                     </Stack>
                   </TableCell>
                   <TableCell>

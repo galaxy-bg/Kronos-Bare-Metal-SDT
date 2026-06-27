@@ -795,6 +795,14 @@ def redfish_create_ilo_user_and_refresh_bmc(
         result["bmc"] = redfish_find_ilo_network(root, auth)
     except RuntimeError as exc:
         result["bmc_error"] = str(exc)
+    try:
+        result["license"] = redfish_read_ilo_license(
+            root,
+            auth,
+            result.get("bmc", {}).get("ip") if isinstance(result.get("bmc"), dict) else None,
+        )
+    except RuntimeError as exc:
+        result["license_error"] = str(exc)
     return result
 
 
@@ -848,6 +856,10 @@ def redfish_verify_ilo_credential(root: str, auth: RedfishAuth, payload: dict[st
         "dns_name": string_value(payload.get("dns_name")),
         "credential": {"username": redfish_auth_username(auth), "verified": True},
     }
+    try:
+        result["license"] = redfish_read_ilo_license(root, auth, string_value(bmc.get("ip")))
+    except RuntimeError as exc:
+        result["license_error"] = str(exc)
 
     if payload.get("create_managed_user"):
         managed_user = string_value(setting(config, "KDX_DEFAULT_ILO_USER", "hpadmin")) or "hpadmin"
@@ -929,8 +941,129 @@ def redfish_set_ilo_network(root: str, auth: tuple[str, str], management: dict[s
     return {"backend": "redfish", "endpoint": root, "ethernet_interface": ethernet_path, "management": safe_management}
 
 
+def license_edition_from_text(value: str) -> str | None:
+    normalized = value.lower()
+    if "advanced" in normalized:
+        return "Advanced"
+    if "essentials" in normalized:
+        return "Essentials"
+    if "standard" in normalized:
+        return "Standard"
+    if "license" in normalized and ("none" in normalized or "not installed" in normalized or "unlicensed" in normalized):
+        return "Standard"
+    return None
+
+
+def license_key_from_text(value: str) -> str | None:
+    try:
+        root = ET.fromstring(value)
+    except ET.ParseError:
+        return None
+
+    key_names = {"key", "licensekey", "licensestring", "activationkey"}
+    for element in root.iter():
+        tag = element.tag.split("}", 1)[-1].lower()
+        text = string_value(element.text)
+        if tag in key_names and text:
+            return text
+        for attr_name, attr_value in element.attrib.items():
+            if attr_name.lower() in key_names and string_value(attr_value):
+                return str(attr_value).strip()
+    return None
+
+
+def fetch_ilo_xmldata_license(bmc_ip: str) -> dict[str, Any]:
+    errors: list[str] = []
+    for scheme in ("https", "http"):
+        url = f"{scheme}://{bmc_ip}/xmldata?item=CpqKey"
+        request = urllib.request.Request(url, headers={"Accept": "application/xml,text/xml,*/*"})
+        try:
+            with urllib.request.urlopen(request, timeout=10, context=ssl._create_unverified_context()) as response:
+                body = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            errors.append(f"{url}: HTTP {exc.code}")
+            continue
+        except urllib.error.URLError as exc:
+            errors.append(f"{url}: {exc.reason}")
+            continue
+
+        edition = license_edition_from_text(body) or "Standard"
+        return {
+            "edition": edition,
+            "installed": edition not in {"Standard", "Unknown"},
+            "detected_by": "xmldata-cpqkey",
+            "endpoint": url,
+            "license_key": license_key_from_text(body),
+        }
+    raise RuntimeError("; ".join(errors) or f"Could not read CpqKey XML from {bmc_ip}")
+
+
+def redfish_license_members(root: str, auth: RedfishAuth, manager_path: str) -> list[dict[str, Any]]:
+    candidates = [
+        f"{manager_path.rstrip('/')}/LicenseService/Licenses/",
+        "/redfish/v1/LicenseService/Licenses/",
+    ]
+    members: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for path in candidates:
+        try:
+            collection = redfish_request(root, path, auth=auth)
+            for member_path in redfish_members(collection):
+                members.append(redfish_request(root, member_path, auth=auth))
+        except RuntimeError as exc:
+            errors.append(str(exc))
+    if members:
+        return members
+    if errors:
+        raise RuntimeError("; ".join(errors))
+    return []
+
+
+def redfish_read_ilo_license(root: str, auth: RedfishAuth, bmc_ip: str | None = None) -> dict[str, Any]:
+    if bmc_ip:
+        try:
+            return fetch_ilo_xmldata_license(bmc_ip)
+        except RuntimeError:
+            pass
+
+    manager_path = redfish_first_manager(root, auth).rstrip("/")
+    payloads: list[dict[str, Any]] = []
+    try:
+        payloads.append(redfish_request(root, f"{manager_path}/LicenseService/", auth=auth))
+    except RuntimeError:
+        pass
+    try:
+        payloads.extend(redfish_license_members(root, auth, manager_path))
+    except RuntimeError:
+        pass
+
+    text = json.dumps(payloads, sort_keys=True)
+    edition = license_edition_from_text(text) or "Standard"
+    return {
+        "edition": edition,
+        "installed": edition not in {"Standard", "Unknown"},
+        "detected_by": "redfish-license-service",
+        "endpoint": root,
+        "license_service": f"{manager_path}/LicenseService",
+    }
+
+
 def redfish_install_ilo_license(root: str, auth: RedfishAuth, license_key: str) -> dict[str, Any]:
     manager_path = redfish_first_manager(root, auth).rstrip("/")
+    try:
+        current_license = redfish_read_ilo_license(root, auth)
+        if current_license.get("edition") == "Advanced":
+            return {
+                "backend": "redfish",
+                "endpoint": root,
+                "license_service": f"{manager_path}/LicenseService",
+                "license": current_license,
+                "skipped": True,
+                "message": "iLO Advanced license is already active.",
+            }
+    except RuntimeError:
+        current_license = None
+
     candidates = [
         (
             f"{manager_path}/LicenseService/Actions/HpeiLOLicenseService.InstallLicense",
@@ -959,6 +1092,7 @@ def redfish_install_ilo_license(root: str, auth: RedfishAuth, license_key: str) 
                 "license_service": f"{manager_path}/LicenseService",
                 "action": path,
                 "result": result,
+                "license": redfish_read_ilo_license(root, auth),
             }
         except RuntimeError as exc:
             errors.append(f"{path}: {exc}")

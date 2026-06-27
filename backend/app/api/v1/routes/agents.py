@@ -45,6 +45,24 @@ def compact_management_config(value: dict) -> dict:
     return {key: item for key, item in value.items() if item is not None}
 
 
+def compact_license_result(value: object, license_key: str | None = None) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    license_result = {
+        "edition": value.get("edition") or "Unknown",
+        "installed": value.get("installed"),
+        "detected_by": value.get("detected_by"),
+        "endpoint": value.get("endpoint"),
+        "license_service": value.get("license_service"),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    if license_key:
+        license_result["license_key"] = license_key
+    elif value.get("license_key"):
+        license_result["license_key"] = value.get("license_key")
+    return compact_management_config(license_result)
+
+
 def reject_deregistered(server: Server) -> None:
     if server.status == "deregistered":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Server is deregistered")
@@ -228,6 +246,9 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
                     "source": "verify-credential",
                 }
             )
+        license_result = result.get("license") if isinstance(result, dict) else None
+        if isinstance(license_result, dict):
+            current["license"] = compact_license_result(license_result)
         server.management_config_json = compact_management_config(current)
 
     if action.action_type == "hpe_create_ilo_user" and payload.status == "succeeded":
@@ -253,6 +274,9 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
         dns_name = original_payload.get("dns_name") if isinstance(original_payload, dict) else None
         if dns_name:
             current["dns_name"] = dns_name
+        license_result = result.get("license") if isinstance(result, dict) else None
+        if isinstance(license_result, dict):
+            current["license"] = compact_license_result(license_result)
         current["managed_user"] = compact_management_config(
             {
                 "username": original_payload.get("username") if isinstance(original_payload, dict) else None,
@@ -267,16 +291,23 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
     if action.action_type == "hpe_install_ilo_license" and payload.status == "succeeded":
         current = merged_management_config(server)
         result = payload.result or {}
-        license_result = {
-            "installed": True,
-            "installed_at": action.completed_at.isoformat() if action.completed_at else None,
-            "source": "install-license-action",
-        }
-        if isinstance(result, dict):
-            for key in ("backend", "endpoint", "license_service", "action"):
-                if result.get(key) is not None:
-                    license_result[key] = result[key]
-        current["license"] = compact_management_config(license_result)
+        license_result = result.get("license") if isinstance(result, dict) else None
+        current_license = compact_license_result(
+            license_result,
+            original_payload.get("license_key") if isinstance(original_payload, dict) else None,
+        )
+        current_license.update(
+            compact_management_config(
+                {
+                    "installed_at": action.completed_at.isoformat() if action.completed_at else None,
+                    "source": "install-license-action",
+                    "backend": result.get("backend") if isinstance(result, dict) else None,
+                    "action": result.get("action") if isinstance(result, dict) else None,
+                    "skipped": result.get("skipped") if isinstance(result, dict) else None,
+                }
+            )
+        )
+        current["license"] = compact_management_config(current_license)
         server.management_config_json = compact_management_config(current)
 
     db.commit()
