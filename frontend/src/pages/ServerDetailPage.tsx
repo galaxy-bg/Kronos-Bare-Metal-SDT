@@ -27,6 +27,17 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function vendorLabel(vendor?: string | null) {
+  if (!vendor) return 'Unknown vendor';
+  const normalized = vendor.toLowerCase();
+  if (normalized === 'hpe') return 'HPE';
+  if (normalized === 'dell') return 'Dell';
+  if (normalized === 'generic_redfish') return 'Generic Redfish';
+  if (normalized === 'oem') return 'OEM';
+  if (normalized === 'unknown') return 'Unknown vendor';
+  return vendor;
+}
+
 function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
   const label = reachable === null ? 'Unknown' : reachable ? 'Online' : 'Offline';
   const title = reachable === null ? 'Connection status is unknown' : reachable ? 'Connection available' : 'Connection unavailable';
@@ -122,7 +133,7 @@ export function ServerDetailPage() {
             />
           </Stack>
           <Typography color="text.secondary">
-            {server.vendor ?? 'Unknown vendor'} {server.model ?? ''}
+            {vendorLabel(server.vendor)} {server.model ?? ''}
           </Typography>
         </Box>
       </Stack>

@@ -128,6 +128,17 @@ function agentVersionLabel(server: ServerSummary) {
   return agent.build ? `${agent.version} (${agent.build})` : agent.version;
 }
 
+function vendorLabel(vendor?: string | null) {
+  if (!vendor) return '-';
+  const normalized = vendor.toLowerCase();
+  if (normalized === 'hpe') return 'HPE';
+  if (normalized === 'dell') return 'Dell';
+  if (normalized === 'generic_redfish') return 'Generic Redfish';
+  if (normalized === 'oem') return 'OEM';
+  if (normalized === 'unknown') return 'Unknown';
+  return vendor;
+}
+
 type ServerSortKey =
   | 'hostname'
   | 'vendor'
@@ -914,7 +925,7 @@ export function DashboardPage() {
       const interfaces = networkInterfacesFor(server);
       const baseRow = [
         server.hostname ?? '',
-        server.vendor ?? '',
+        vendorLabel(server.vendor),
         server.model ?? '',
         server.product_name ?? '',
         server.serial_number,
@@ -1115,8 +1126,7 @@ export function DashboardPage() {
                 <TableCell>{sortableHeader('Vendor', 'vendor')}</TableCell>
                 <TableCell>{sortableHeader('Model', 'model')}</TableCell>
                 <TableCell>{sortableHeader('Serial Number', 'serial_number')}</TableCell>
-                <TableCell>{sortableHeader('Agent IP', 'agent_ip')}</TableCell>
-                <TableCell>Agent</TableCell>
+                <TableCell>{sortableHeader('Agent', 'agent_ip')}</TableCell>
                 <TableCell>{sortableHeader('iLO / iDRAC / IPMI IP', 'bmc_ip')}</TableCell>
                 <TableCell>Readiness</TableCell>
                 <TableCell>Health</TableCell>
@@ -1143,21 +1153,21 @@ export function DashboardPage() {
                       {server.hostname ?? server.serial_number}
                     </Link>
                   </TableCell>
-                  <TableCell>{server.vendor ?? '-'}</TableCell>
+                  <TableCell>{vendorLabel(server.vendor)}</TableCell>
                   <TableCell>{server.model ?? '-'}</TableCell>
                   <TableCell>{server.serial_number}</TableCell>
                   <TableCell>
-                    <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip title={server.management_config_json?.agent?.reported_at ? `Reported ${formatDate(server.management_config_json.agent.reported_at)}` : 'Agent version not reported yet'}>
-                      <Chip
-                        size="small"
-                        label={agentVersionLabel(server)}
-                        variant={server.management_config_json?.agent?.version ? 'filled' : 'outlined'}
-                        sx={{ fontWeight: 800 }}
-                      />
-                    </Tooltip>
+                    <Stack spacing={0.75} alignItems="flex-start">
+                      <IpReachability ip={server.agent_ip} reachable={server.agent_reachable} />
+                      <Tooltip title={server.management_config_json?.agent?.reported_at ? `Reported ${formatDate(server.management_config_json.agent.reported_at)}` : 'Agent version not reported yet'}>
+                        <Chip
+                          size="small"
+                          label={agentVersionLabel(server)}
+                          variant={server.management_config_json?.agent?.version ? 'filled' : 'outlined'}
+                          sx={{ fontWeight: 800 }}
+                        />
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                   <TableCell>
                     <Stack spacing={0.75} alignItems="flex-start">
