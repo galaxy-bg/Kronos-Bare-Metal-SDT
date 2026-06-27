@@ -10,6 +10,7 @@ from app.models.server import Server
 from app.models.server_action import ServerAction
 from app.schemas.agent import AgentActionComplete, AgentActionPoll, AgentActionRead, AgentHeartbeat, AgentRegistration, InventoryUpload
 from app.schemas.server import ServerRead
+from app.utils.dmi import normalize_vendor
 
 router = APIRouter()
 
@@ -72,11 +73,12 @@ def reject_deregistered(server: Server) -> None:
 def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) -> Server:
     now = datetime.now(UTC)
     server = db.scalar(select(Server).where(Server.serial_number == payload.serial_number))
+    normalized_vendor = normalize_vendor(payload.vendor)
 
     if server is None:
         server = Server(
             serial_number=payload.serial_number,
-            vendor=payload.vendor,
+            vendor=normalized_vendor,
             model=payload.model,
             product_name=payload.product_name,
             hostname=payload.hostname or default_hostname(payload.serial_number),
@@ -93,7 +95,7 @@ def register_agent(payload: AgentRegistration, db: Session = Depends(get_db)) ->
         )
         db.add(server)
     else:
-        update_if_known(server, "vendor", payload.vendor)
+        update_if_known(server, "vendor", normalized_vendor)
         update_if_known(server, "model", payload.model)
         update_if_known(server, "product_name", payload.product_name)
         update_if_known(server, "hostname", payload.hostname)
@@ -146,7 +148,7 @@ def upload_inventory(payload: InventoryUpload, db: Session = Depends(get_db)) ->
     server.last_seen = datetime.now(UTC)
     system = payload.inventory.get("system") if isinstance(payload.inventory, dict) else None
     if isinstance(system, dict):
-        update_if_known(server, "vendor", system.get("vendor"))
+        update_if_known(server, "vendor", normalize_vendor(system.get("vendor")))
         update_if_known(server, "model", system.get("model"))
         update_if_known(server, "product_name", system.get("product_name"))
         bmc = payload.inventory.get("bmc")

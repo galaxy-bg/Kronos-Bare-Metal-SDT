@@ -27,6 +27,8 @@ from app.schemas.action import (
     ServerActionRead,
 )
 from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ServerDetail, ServerRead, ServerUpdate
+from app.services.inventory_service import InventoryService
+from app.utils.dmi import normalize_vendor
 
 router = APIRouter()
 OFFLINE_AFTER = timedelta(minutes=5)
@@ -427,11 +429,28 @@ def update_server(server_id: int, payload: ServerUpdate, db: Session = Depends(g
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
     for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(server, field, value)
+        if field == "vendor":
+            setattr(server, field, normalize_vendor(value))
+        else:
+            setattr(server, field, value)
 
     db.commit()
     db.refresh(server)
     return server_to_read(server)
+
+
+@router.get("/{server_id}/inventory/refresh")
+def refresh_server_inventory(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    inventory = InventoryService(db).refresh_from_bmc(server)
+    return {
+        "status": "stored",
+        "inventory_id": inventory.id,
+        "inventory": inventory.inventory_json,
+    }
 
 
 @router.post("/{server_id}/deregister", response_model=ServerRead)

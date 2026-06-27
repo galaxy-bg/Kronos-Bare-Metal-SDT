@@ -10,6 +10,7 @@ Phase-1 MVP focuses on:
 - Automatic registration to a central controller
 - Hardware inventory collection
 - Web-based server management portal
+- HPE ProLiant discovery and safe iLO read-only operations through Redfish
 
 Phase-1 intentionally does not include BIOS configuration, firmware updates, or OS deployment.
 
@@ -42,6 +43,110 @@ Services:
 - Backend API: http://localhost:8000
 - API docs: http://localhost:8000/docs
 - PostgreSQL: localhost:5432
+
+## Architecture
+
+KronOS SDT is moving to a vendor-adapter architecture. The core platform stays
+vendor-neutral: API routes and services should not call HPE, Dell, or OEM code
+directly. Vendor behavior is selected through `AdapterRegistry` and executed
+through a common `BaseVendorAdapter` interface.
+
+Current backend layout:
+
+```text
+backend/app/
+├── api/v1/routes/          # HTTP API
+├── adapters/               # Vendor-specific Redfish/iLO/iDRAC behavior
+│   ├── base.py             # BaseVendorAdapter contract
+│   ├── registry.py         # Vendor/model/BMC adapter selection
+│   ├── hpe/                # HPE ProLiant iLO implementation
+│   ├── dell/               # Dell iDRAC stubs
+│   ├── generic/            # Generic Redfish stubs
+│   └── oem/                # OEM Redfish stubs
+├── core/                   # config, database, logging, security helpers
+├── models/                 # SQLAlchemy models
+├── repositories/           # DB access helpers
+├── schemas/                # Pydantic contracts
+├── services/               # vendor-neutral business logic
+├── utils/                  # shared DMI, network, Redfish helpers
+└── workers/                # future job worker entry points
+```
+
+Current agent layout:
+
+```text
+agent/
+├── kdx-agent.py            # current live ISO entry point
+└── kronos_agent/           # target modular package
+    ├── collectors/
+    ├── client/
+    └── services/
+```
+
+The live ISO still uses `agent/kdx-agent.py` for MVP compatibility. The
+`agent/kronos_agent/` package is the target structure for the next agent split.
+
+## Vendor Adapter Model
+
+All vendor adapters implement:
+
+- `detect()`
+- `get_system_inventory()`
+- `get_bios_config()`
+- `set_bios_config()`
+- `get_storage_inventory()`
+- `get_raid_config()`
+- `set_raid_config()`
+- `get_firmware_inventory()`
+- `set_uid_led()`
+- `power_status()`
+- `power_on()`
+- `power_off()`
+- `reboot()`
+
+Normalized vendor values:
+
+- `hpe`
+- `dell`
+- `generic_redfish`
+- `oem`
+- `unknown`
+
+HPE is implemented first. Dell, OEM, and generic Redfish adapters are present as
+safe Phase-1 stubs so the core platform can grow without hard-coding one vendor.
+
+Example adapter-backed route:
+
+```bash
+curl http://localhost:8000/api/v1/servers/1/inventory/refresh
+```
+
+This loads the server from the DB, selects an adapter through `AdapterRegistry`,
+calls `get_system_inventory()`, and stores the result. If BMC IP or credentials
+are missing, it stores a mocked refresh result instead of failing the MVP flow.
+
+## Current Phase-1 Scope
+
+- Agent registration
+- Heartbeat
+- Inventory upload
+- Server list and server detail UI
+- Recent task tracking
+- HPE iLO credential validation and managed `hpadmin` workflow
+- HPE iLO management IP, user, and license actions through the live agent
+- Adapter-backed HPE Redfish read-only inventory refresh
+- Placeholder BMC credential model with `credential_type=bmc`
+
+## HPE Phase-2 Roadmap
+
+- BIOS profile read/apply
+- RAID profile read/apply
+- Firmware inventory and update orchestration
+- iLO Advanced license lifecycle reporting
+- UID LED locate actions from the UI
+- Power actions through queued jobs
+- OS deployment workflow
+- Durable job queue and worker execution model
 
 Lab control plane profile:
 

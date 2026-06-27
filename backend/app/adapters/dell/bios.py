@@ -1,0 +1,1 @@
+"""Dell BIOS adapter placeholders."""
