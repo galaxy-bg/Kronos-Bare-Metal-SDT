@@ -72,6 +72,226 @@ function IpReachability({ ip, reachable }: { ip: string | null; reachable: boole
   );
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function resourceOf(value: unknown): Record<string, unknown> {
+  const record = asRecord(value);
+  return asRecord(record.resource);
+}
+
+function textField(record: Record<string, unknown>, keys: string[], fallback = '-') {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  }
+  return fallback;
+}
+
+function statusText(record: Record<string, unknown>) {
+  const status = asRecord(record.Status);
+  const state = textField(status, ['State'], '');
+  const health = textField(status, ['HealthRollup', 'Health'], '');
+  return [state, health].filter(Boolean).join(' / ') || '-';
+}
+
+function formatCapacity(record: Record<string, unknown>) {
+  const bytes = record.CapacityBytes;
+  if (typeof bytes === 'number' && Number.isFinite(bytes)) {
+    const gb = bytes / 1000 ** 3;
+    return `${gb.toFixed(gb >= 100 ? 0 : 1)} GB`;
+  }
+  return textField(record, ['CapacityGB', 'CapacityGiB', 'CapacityMiB', 'SizeBytes']);
+}
+
+function InventoryItem({ title, subtitle, rows }: { title: string; subtitle?: string; rows: Array<[string, ReactNode]> }) {
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.25, bgcolor: '#ffffff' }}>
+      <Typography sx={{ fontWeight: 900, overflowWrap: 'anywhere' }}>{title}</Typography>
+      {subtitle && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{subtitle}</Typography>}
+      <Stack spacing={0.6} sx={{ mt: 1 }}>
+        {rows.map(([label, value]) => (
+          <Stack key={label} direction="row" spacing={1.5} justifyContent="space-between" alignItems="flex-start">
+            <Typography variant="body2" color="text.secondary">{label}</Typography>
+            <Box sx={{ fontSize: 14, fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>{value}</Box>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> }) {
+  const raid = asRecord(inventory.raid);
+  const controllers = asArray(raid.controllers).slice(0, 6);
+  const drives = asArray(raid.drives).slice(0, 16);
+  const volumes = asArray(raid.volumes).slice(0, 8);
+  const recommendations = asArray(raid.recommendations);
+
+  return (
+    <ReadableSection
+      title="Storage & RAID"
+      empty={!controllers.length && !drives.length && !volumes.length}
+      emptyText="No Redfish storage data has been collected yet. Run inventory refresh after iLO credentials are validated."
+    >
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Chip size="small" label={`${textField(raid, ['controller_count'], '0')} controllers`} />
+        <Chip size="small" label={`${textField(raid, ['drive_count'], '0')} drives`} />
+        <Chip size="small" label={`${textField(raid, ['volume_count'], '0')} volumes`} />
+        <Chip size="small" label={raid.apply_supported ? 'RAID apply enabled' : 'RAID preview only'} />
+      </Stack>
+      <Grid container spacing={1.5} sx={{ mt: 0.25 }}>
+        {controllers.map((item, index) => {
+          const resource = resourceOf(item);
+          return (
+            <Grid item xs={12} md={6} key={`controller-${index}`}>
+              <InventoryItem
+                title={textField(resource, ['Name', 'Model', 'Id'], `Controller ${index + 1}`)}
+                subtitle={textField(resource, ['Manufacturer', 'PartNumber'], undefined)}
+                rows={[
+                  ['Firmware', textField(resource, ['FirmwareVersion', 'FirmwarePackageVersion'])],
+                  ['Serial', textField(resource, ['SerialNumber'])],
+                  ['Status', statusText(resource)],
+                ]}
+              />
+            </Grid>
+          );
+        })}
+        {volumes.map((item, index) => {
+          const resource = resourceOf(item);
+          return (
+            <Grid item xs={12} md={6} key={`volume-${index}`}>
+              <InventoryItem
+                title={textField(resource, ['Name', 'Id'], `Logical Drive ${index + 1}`)}
+                rows={[
+                  ['RAID', textField(resource, ['RAIDType', 'VolumeType', 'VolumeUsage'])],
+                  ['Capacity', formatCapacity(resource)],
+                  ['Status', statusText(resource)],
+                ]}
+              />
+            </Grid>
+          );
+        })}
+        {drives.map((item, index) => {
+          const resource = resourceOf(item);
+          return (
+            <Grid item xs={12} sm={6} md={4} key={`drive-${index}`}>
+              <InventoryItem
+                title={textField(resource, ['Name', 'Id'], `Drive ${index + 1}`)}
+                rows={[
+                  ['Capacity', formatCapacity(resource)],
+                  ['Media', textField(resource, ['MediaType', 'Protocol'])],
+                  ['Serial', textField(resource, ['SerialNumber'])],
+                  ['Status', statusText(resource)],
+                ]}
+              />
+            </Grid>
+          );
+        })}
+      </Grid>
+      {recommendations.length > 0 && (
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+          {recommendations.map((item, index) => {
+            const recommendation = asRecord(item);
+            return (
+              <Tooltip key={`recommendation-${index}`} title={textField(recommendation, ['message'], '')}>
+                <Chip
+                  size="small"
+                  color={recommendation.eligible ? 'success' : 'default'}
+                  label={`${textField(recommendation, ['raid_level'], 'No RAID')} ${recommendation.eligible ? 'eligible' : 'not eligible'}`}
+                />
+              </Tooltip>
+            );
+          })}
+        </Stack>
+      )}
+    </ReadableSection>
+  );
+}
+
+function FirmwareInventorySummary({ inventory }: { inventory: Record<string, unknown> }) {
+  const firmware = asRecord(inventory.firmware_inventory);
+  const items = asArray(firmware.items).slice(0, 18);
+  return (
+    <ReadableSection title="Firmware Inventory" empty={!items.length} emptyText="No firmware inventory has been collected yet.">
+      <Grid container spacing={1.5}>
+        {items.map((item, index) => {
+          const resource = resourceOf(item);
+          return (
+            <Grid item xs={12} sm={6} md={4} key={`firmware-${index}`}>
+              <InventoryItem
+                title={textField(resource, ['Name', 'Id', 'SoftwareId'], `Firmware ${index + 1}`)}
+                subtitle={textField(resource, ['Description', 'Manufacturer'], undefined)}
+                rows={[
+                  ['Version', textField(resource, ['Version', 'FirmwareVersion'])],
+                  ['Updateable', textField(resource, ['Updateable'])],
+                  ['Status', statusText(resource)],
+                ]}
+              />
+            </Grid>
+          );
+        })}
+      </Grid>
+    </ReadableSection>
+  );
+}
+
+function DeviceInventorySummary({ inventory }: { inventory: Record<string, unknown> }) {
+  const deviceInventory = asRecord(inventory.device_inventory);
+  const devices = asArray(deviceInventory.devices).slice(0, 18);
+  const summary = asRecord(deviceInventory.summary);
+  return (
+    <ReadableSection title="Device Inventory" empty={!devices.length} emptyText="No device inventory has been collected yet.">
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Chip size="small" label={`${textField(summary, ['chassis_count'], '0')} chassis`} />
+        <Chip size="small" label={`${textField(summary, ['device_count'], '0')} devices`} />
+      </Stack>
+      <Grid container spacing={1.5} sx={{ mt: 0.25 }}>
+        {devices.map((item, index) => {
+          const record = asRecord(item);
+          const resource = resourceOf(item);
+          return (
+            <Grid item xs={12} sm={6} md={4} key={`device-${index}`}>
+              <InventoryItem
+                title={textField(resource, ['Name', 'Model', 'Id'], `Device ${index + 1}`)}
+                subtitle={textField(record, ['category'])}
+                rows={[
+                  ['Manufacturer', textField(resource, ['Manufacturer'])],
+                  ['Part', textField(resource, ['PartNumber', 'SKU'])],
+                  ['Serial', textField(resource, ['SerialNumber'])],
+                  ['Status', statusText(resource)],
+                ]}
+              />
+            </Grid>
+          );
+        })}
+      </Grid>
+    </ReadableSection>
+  );
+}
+
+function ReadableSection({ title, empty, emptyText, children }: { title: string; empty: boolean; emptyText: string; children: ReactNode }) {
+  return (
+    <Box>
+      <Typography variant="subtitle1" sx={{ fontWeight: 900, mb: 1 }}>
+        {title}
+      </Typography>
+      {empty ? (
+        <Typography color="text.secondary">{emptyText}</Typography>
+      ) : (
+        <Stack spacing={1.5}>{children}</Stack>
+      )}
+    </Box>
+  );
+}
+
 export function ServerDetailPage() {
   const { serverId } = useParams();
   const [server, setServer] = useState<ServerDetail | null>(null);
@@ -185,11 +405,23 @@ export function ServerDetailPage() {
 
       <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderColor: 'divider' }}>
         <Typography variant="h6" sx={{ fontWeight: 900 }}>
-          Hardware Inventory
+          Inventory Summary
+        </Typography>
+        <Divider sx={{ my: 2, borderColor: 'divider' }} />
+        <Stack spacing={2.5}>
+          <StorageRaidSummary inventory={latestInventory} />
+          <FirmwareInventorySummary inventory={latestInventory} />
+          <DeviceInventorySummary inventory={latestInventory} />
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderColor: 'divider' }}>
+        <Typography variant="h6" sx={{ fontWeight: 900 }}>
+          Raw Inventory
         </Typography>
         <Divider sx={{ my: 2, borderColor: 'divider' }} />
         <Grid container spacing={2}>
-          {['system', 'cpu', 'memory', 'storage', 'storage_redfish', 'raid', 'network', 'bmc'].map((section) => (
+          {['system', 'cpu', 'memory', 'storage', 'storage_redfish', 'raid', 'firmware_inventory', 'device_inventory', 'network', 'bmc'].map((section) => (
             <Grid item xs={12} md={6} key={section}>
               <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 900, color: 'primary.dark', textTransform: 'uppercase' }}>
                 {section}

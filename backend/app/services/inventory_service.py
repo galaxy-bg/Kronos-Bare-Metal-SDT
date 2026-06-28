@@ -27,6 +27,8 @@ class InventoryService:
                 storage_inventory = adapter.get_storage_inventory()
                 inventory_json["storage_redfish"] = storage_inventory
                 inventory_json["raid"] = storage_inventory.get("raid") if isinstance(storage_inventory, dict) else None
+                inventory_json["firmware_inventory"] = self._optional_adapter_read(adapter, "get_firmware_inventory")
+                inventory_json["device_inventory"] = self._optional_adapter_read(adapter, "get_device_inventory")
             except RedfishError as exc:
                 inventory_json = self.adapter_service.mocked_inventory_refresh(server, f"Redfish refresh failed: {exc}")
         self._merge_management_state(server, inventory_json)
@@ -34,6 +36,15 @@ class InventoryService:
         self.db.commit()
         self.db.refresh(inventory)
         return inventory
+
+    def _optional_adapter_read(self, adapter: object, method_name: str) -> dict:
+        method = getattr(adapter, method_name, None)
+        if not callable(method):
+            return {"available": False, "reason": f"{method_name} is not implemented by this adapter."}
+        try:
+            return method()
+        except RedfishError as exc:
+            return {"available": False, "error": str(exc)}
 
     def _merge_management_state(self, server: Server, inventory_json: dict) -> None:
         current = dict(server.management_config_json or {})

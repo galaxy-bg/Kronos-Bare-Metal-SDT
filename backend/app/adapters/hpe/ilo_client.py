@@ -126,10 +126,47 @@ class HpeIloAdapter(BaseVendorAdapter):
 
     def get_firmware_inventory(self) -> dict[str, Any]:
         # TODO: firmware update.
+        collection_path = "/redfish/v1/UpdateService/FirmwareInventory/"
+        collection = self._get(collection_path)
         return {
             "vendor": self.vendor,
-            "source": "hpe-redfish",
-            "firmware": self._get("/redfish/v1/UpdateService/FirmwareInventory/"),
+            "source": "hpe-redfish-firmware",
+            "collection_path": collection_path,
+            "collection": collection,
+            "items": self._read_collection_members(collection),
+        }
+
+    def get_device_inventory(self) -> dict[str, Any]:
+        system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
+        chassis_collection = self._safe_get("/redfish/v1/Chassis/") or {}
+        chassis: list[dict[str, Any]] = []
+        devices: list[dict[str, Any]] = []
+
+        for chassis_path in self._member_paths(chassis_collection):
+            chassis_resource = self._safe_get(chassis_path)
+            if not chassis_resource:
+                continue
+            chassis.append({"path": chassis_path, "resource": chassis_resource})
+            for child_name in ("Devices", "PCIeDevices", "NetworkAdapters", "Drives"):
+                for item in self._read_named_child_collection(chassis_path, child_name):
+                    devices.append({"category": child_name, **item})
+
+        for child_name in ("PCIeDevices", "NetworkInterfaces", "EthernetInterfaces"):
+            for item in self._read_named_child_collection(system_path, child_name):
+                devices.append({"category": child_name, **item})
+
+        return {
+            "vendor": self.vendor,
+            "source": "hpe-redfish-device",
+            "system_path": system_path,
+            "chassis_collection": chassis_collection,
+            "chassis": chassis,
+            "devices": devices,
+            "summary": {
+                "chassis_count": len(chassis),
+                "device_count": len(devices),
+                "categories": sorted({str(item.get("category")) for item in devices if item.get("category")}),
+            },
         }
 
     def set_uid_led(self, state: str) -> dict[str, Any]:
@@ -336,6 +373,9 @@ class HpeIloAdapter(BaseVendorAdapter):
         collection = self._safe_get(collection_path)
         if not collection:
             return []
+        return self._read_collection_members(collection)
+
+    def _read_collection_members(self, collection: dict[str, Any]) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for member_path in self._member_paths(collection):
             resource = self._safe_get(member_path)
