@@ -1,6 +1,9 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Box,
   Button,
   Chip,
@@ -22,6 +25,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { fetchServer } from '../api/client';
 import type { ServerDetail } from '../types';
@@ -409,17 +413,70 @@ function DeviceInventorySummary({ inventory }: { inventory: Record<string, unkno
 }
 
 function ReadableSection({ title, empty, emptyText, children }: { title: string; empty: boolean; emptyText: string; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(true);
+
   return (
-    <Box>
-      <Typography variant="subtitle1" sx={{ fontWeight: 900, mb: 1 }}>
-        {title}
-      </Typography>
-      {empty ? (
-        <Typography color="text.secondary">{emptyText}</Typography>
-      ) : (
-        <Stack spacing={1.5}>{children}</Stack>
-      )}
-    </Box>
+    <Accordion
+      expanded={expanded}
+      onChange={(_, nextExpanded) => setExpanded(nextExpanded)}
+      disableGutters
+      variant="outlined"
+      sx={{
+        borderColor: 'divider',
+        borderRadius: 1,
+        '&:before': { display: 'none' },
+        '& + &': { mt: 0 },
+      }}
+    >
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+          {title}
+        </Typography>
+      </AccordionSummary>
+      <AccordionDetails sx={{ pt: 0 }}>
+        {empty ? (
+          <Typography color="text.secondary">{emptyText}</Typography>
+        ) : (
+          <Stack spacing={1.5}>{children}</Stack>
+        )}
+      </AccordionDetails>
+    </Accordion>
+  );
+}
+
+function CollapsiblePanel({
+  title,
+  defaultExpanded,
+  children,
+}: {
+  title: string;
+  defaultExpanded: boolean;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <Accordion
+      expanded={expanded}
+      onChange={(_, nextExpanded) => setExpanded(nextExpanded)}
+      disableGutters
+      variant="outlined"
+      sx={{
+        borderColor: 'divider',
+        borderRadius: 1,
+        '&:before': { display: 'none' },
+      }}
+    >
+      <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: { xs: 2, md: 2.5 } }}>
+        <Typography variant="h6" sx={{ fontWeight: 900 }}>
+          {title}
+        </Typography>
+      </AccordionSummary>
+      <AccordionDetails sx={{ px: { xs: 2, md: 2.5 }, pt: 0, pb: { xs: 2, md: 2.5 } }}>
+        <Divider sx={{ mb: 2, borderColor: 'divider' }} />
+        {children}
+      </AccordionDetails>
+    </Accordion>
   );
 }
 
@@ -534,23 +591,15 @@ export function ServerDetailPage() {
         </Grid>
       </Grid>
 
-      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderColor: 'divider' }}>
-        <Typography variant="h6" sx={{ fontWeight: 900 }}>
-          Inventory Summary
-        </Typography>
-        <Divider sx={{ my: 2, borderColor: 'divider' }} />
+      <CollapsiblePanel title="Inventory Summary" defaultExpanded>
         <Stack spacing={2.5}>
           <StorageRaidSummary inventory={latestInventory} />
           <FirmwareInventorySummary inventory={latestInventory} />
           <DeviceInventorySummary inventory={latestInventory} />
         </Stack>
-      </Paper>
+      </CollapsiblePanel>
 
-      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, borderColor: 'divider' }}>
-        <Typography variant="h6" sx={{ fontWeight: 900 }}>
-          Raw Inventory
-        </Typography>
-        <Divider sx={{ my: 2, borderColor: 'divider' }} />
+      <CollapsiblePanel title="Raw Inventory" defaultExpanded={false}>
         <Grid container spacing={2}>
           {['system', 'cpu', 'memory', 'storage', 'storage_redfish', 'raid', 'firmware_inventory', 'device_inventory', 'network', 'bmc'].map((section) => (
             <Grid item xs={12} md={6} key={section}>
@@ -574,7 +623,7 @@ export function ServerDetailPage() {
             </Grid>
           ))}
         </Grid>
-      </Paper>
+      </CollapsiblePanel>
     </Stack>
   );
 }
