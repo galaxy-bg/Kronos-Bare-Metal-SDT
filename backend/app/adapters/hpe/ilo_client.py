@@ -80,16 +80,45 @@ class HpeIloAdapter(BaseVendorAdapter):
         return {"vendor": self.vendor, "implemented": False, "message": "BIOS apply is planned for Phase-2."}
 
     def get_storage_inventory(self) -> dict[str, Any]:
-        systems = self._get("/redfish/v1/Systems/")
-        members = systems.get("Members") or []
-        system_path = "/redfish/v1/Systems/1/"
-        if members and isinstance(members[0], dict) and members[0].get("@odata.id"):
-            system_path = str(members[0]["@odata.id"])
+        system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
         storage_path = system_path.rstrip("/") + "/Storage/"
-        return {"vendor": self.vendor, "source": "hpe-redfish", "storage": self._get(storage_path)}
+        storage_collection = self._get(storage_path)
+        storage_members: list[dict[str, Any]] = []
+        for member_path in self._member_paths(storage_collection):
+            storage_resource = self._safe_get(member_path)
+            if not storage_resource:
+                continue
+            storage_members.append(
+                {
+                    "path": member_path,
+                    "resource": storage_resource,
+                    "controllers": self._extract_controllers(storage_resource),
+                    "drives": self._read_linked_collection(storage_resource.get("Drives")),
+                    "volumes": self._read_volumes(storage_resource.get("Volumes")),
+                }
+            )
+
+        smart_storage = self._read_hpe_smart_storage(system_path)
+        raid = self._raid_summary(storage_members, smart_storage)
+        return {
+            "vendor": self.vendor,
+            "source": "hpe-redfish-storage",
+            "system_path": system_path,
+            "storage_collection": storage_collection,
+            "storage": storage_members,
+            "smart_storage": smart_storage,
+            "raid": raid,
+        }
 
     def get_raid_config(self) -> dict[str, Any]:
-        return self.get_storage_inventory()
+        storage = self.get_storage_inventory()
+        return {
+            "vendor": self.vendor,
+            "source": storage.get("source"),
+            "raid": storage.get("raid"),
+            "storage": storage.get("storage"),
+            "smart_storage": storage.get("smart_storage"),
+        }
 
     def set_raid_config(self, config: dict[str, Any]) -> dict[str, Any]:
         # TODO: RAID profile apply.
@@ -207,6 +236,185 @@ class HpeIloAdapter(BaseVendorAdapter):
             if isinstance(member, dict) and member.get("@odata.id"):
                 return str(member["@odata.id"])
         return fallback
+
+    def _safe_get(self, path: str) -> dict[str, Any] | None:
+        try:
+            return self._get(path)
+        except RedfishError:
+            return None
+
+    def _member_paths(self, collection: object) -> list[str]:
+        if not isinstance(collection, dict):
+            return []
+        paths: list[str] = []
+        for member in collection.get("Members", []):
+            if isinstance(member, dict) and member.get("@odata.id"):
+                paths.append(str(member["@odata.id"]))
+        return paths
+
+    def _odata_path(self, value: object) -> str | None:
+        if isinstance(value, dict) and value.get("@odata.id"):
+            return str(value["@odata.id"])
+        return None
+
+    def _read_linked_collection(self, value: object) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        if isinstance(value, list):
+            for item in value:
+                path = self._odata_path(item)
+                if not path:
+                    continue
+                resource = self._safe_get(path)
+                results.append({"path": path, "resource": resource or {"error": "read failed"}})
+            return results
+
+        path = self._odata_path(value)
+        if not path:
+            return results
+        collection = self._safe_get(path)
+        if not collection:
+            return [{"path": path, "resource": {"error": "read failed"}}]
+        member_paths = self._member_paths(collection)
+        if not member_paths:
+            return [{"path": path, "resource": collection}]
+        for member_path in member_paths:
+            resource = self._safe_get(member_path)
+            results.append({"path": member_path, "resource": resource or {"error": "read failed"}})
+        return results
+
+    def _read_volumes(self, value: object) -> list[dict[str, Any]]:
+        return self._read_linked_collection(value)
+
+    def _extract_controllers(self, storage_resource: dict[str, Any]) -> list[dict[str, Any]]:
+        controllers: list[dict[str, Any]] = []
+        for key in ("StorageControllers", "Controllers"):
+            value = storage_resource.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        controllers.append(item)
+        return controllers
+
+    def _read_hpe_smart_storage(self, system_path: str) -> dict[str, Any]:
+        candidates = [
+            system_path.rstrip("/") + "/SmartStorage/ArrayControllers/",
+            "/redfish/v1/Systems/1/SmartStorage/ArrayControllers/",
+        ]
+        for collection_path in dict.fromkeys(candidates):
+            collection = self._safe_get(collection_path)
+            if not collection:
+                continue
+            controllers = []
+            for controller_path in self._member_paths(collection):
+                controller = self._safe_get(controller_path)
+                if not controller:
+                    continue
+                controllers.append(
+                    {
+                        "path": controller_path,
+                        "resource": controller,
+                        "disk_drives": self._read_named_child_collection(controller_path, "DiskDrives"),
+                        "logical_drives": self._read_named_child_collection(controller_path, "LogicalDrives"),
+                        "storage_enclosures": self._read_named_child_collection(controller_path, "StorageEnclosures"),
+                    }
+                )
+            return {
+                "detected": True,
+                "source": "hpe-smartstorage-redfish",
+                "collection_path": collection_path,
+                "collection": collection,
+                "controllers": controllers,
+            }
+        return {
+            "detected": False,
+            "source": "hpe-smartstorage-redfish",
+            "attempted_paths": candidates,
+        }
+
+    def _read_named_child_collection(self, parent_path: str, child_name: str) -> list[dict[str, Any]]:
+        collection_path = parent_path.rstrip("/") + f"/{child_name}/"
+        collection = self._safe_get(collection_path)
+        if not collection:
+            return []
+        results: list[dict[str, Any]] = []
+        for member_path in self._member_paths(collection):
+            resource = self._safe_get(member_path)
+            results.append({"path": member_path, "resource": resource or {"error": "read failed"}})
+        return results
+
+    def _raid_summary(self, storage_members: list[dict[str, Any]], smart_storage: dict[str, Any]) -> dict[str, Any]:
+        controllers: list[dict[str, Any]] = []
+        drives: list[dict[str, Any]] = []
+        volumes: list[dict[str, Any]] = []
+
+        for storage_member in storage_members:
+            storage_path = str(storage_member.get("path") or "")
+            for controller in storage_member.get("controllers", []):
+                if isinstance(controller, dict):
+                    controllers.append({"source": storage_path, **controller})
+            for drive in storage_member.get("drives", []):
+                if isinstance(drive, dict):
+                    drives.append({"source": storage_path, **drive})
+            for volume in storage_member.get("volumes", []):
+                if isinstance(volume, dict):
+                    volumes.append({"source": storage_path, **volume})
+
+        if smart_storage.get("detected"):
+            for controller in smart_storage.get("controllers", []):
+                if not isinstance(controller, dict):
+                    continue
+                controller_path = str(controller.get("path") or "")
+                controllers.append({"source": "hpe-smartstorage", "path": controller_path, "resource": controller.get("resource")})
+                for drive in controller.get("disk_drives", []):
+                    if isinstance(drive, dict):
+                        drives.append({"source": controller_path, **drive})
+                for logical_drive in controller.get("logical_drives", []):
+                    if isinstance(logical_drive, dict):
+                        volumes.append({"source": controller_path, **logical_drive})
+
+        recommendations: list[dict[str, Any]] = []
+        drive_count = len(drives)
+        if drive_count >= 2:
+            recommendations.append(
+                {
+                    "raid_level": "RAID1",
+                    "minimum_drives": 2,
+                    "eligible": True,
+                    "destructive": True,
+                    "message": "Two or more drives detected; RAID1 can be planned after operator selects target drives.",
+                }
+            )
+        if drive_count >= 3:
+            recommendations.append(
+                {
+                    "raid_level": "RAID5",
+                    "minimum_drives": 3,
+                    "eligible": True,
+                    "destructive": True,
+                    "message": "Three or more drives detected; RAID5 can be planned after operator selects target drives.",
+                }
+            )
+        if not recommendations:
+            recommendations.append(
+                {
+                    "raid_level": None,
+                    "eligible": False,
+                    "destructive": False,
+                    "message": "Not enough Redfish-visible drives for a RAID recommendation yet.",
+                }
+            )
+
+        return {
+            "apply_supported": False,
+            "apply_note": "Read-only discovery is enabled. RAID apply will be added as a guarded queued job with explicit destructive confirmation.",
+            "controller_count": len(controllers),
+            "drive_count": drive_count,
+            "volume_count": len(volumes),
+            "controllers": controllers,
+            "drives": drives,
+            "volumes": volumes,
+            "recommendations": recommendations,
+        }
 
     def _health_value(self, payload: dict[str, Any]) -> str | None:
         status = payload.get("Status")

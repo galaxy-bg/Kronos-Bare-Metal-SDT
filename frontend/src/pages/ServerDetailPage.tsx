@@ -189,7 +189,7 @@ export function ServerDetailPage() {
         </Typography>
         <Divider sx={{ my: 2, borderColor: 'divider' }} />
         <Grid container spacing={2}>
-          {['system', 'cpu', 'memory', 'storage', 'network', 'bmc'].map((section) => (
+          {['system', 'cpu', 'memory', 'storage', 'storage_redfish', 'raid', 'network', 'bmc'].map((section) => (
             <Grid item xs={12} md={6} key={section}>
               <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 900, color: 'primary.dark', textTransform: 'uppercase' }}>
                 {section}

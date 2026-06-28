@@ -24,6 +24,9 @@ class InventoryService:
         else:
             try:
                 inventory_json = adapter.get_system_inventory()
+                storage_inventory = adapter.get_storage_inventory()
+                inventory_json["storage_redfish"] = storage_inventory
+                inventory_json["raid"] = storage_inventory.get("raid") if isinstance(storage_inventory, dict) else None
             except RedfishError as exc:
                 inventory_json = self.adapter_service.mocked_inventory_refresh(server, f"Redfish refresh failed: {exc}")
         self._merge_management_state(server, inventory_json)

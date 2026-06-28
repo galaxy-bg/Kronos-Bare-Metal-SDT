@@ -27,7 +27,9 @@ from app.schemas.action import (
     ServerActionRead,
 )
 from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ServerDetail, ServerRead, ServerUpdate
+from app.services.adapter_service import AdapterService
 from app.services.inventory_service import InventoryService
+from app.utils.redfish import RedfishError
 from app.utils.dmi import normalize_vendor
 
 router = APIRouter()
@@ -450,6 +452,47 @@ def refresh_server_inventory(server_id: int, db: Session = Depends(get_db)) -> d
         "status": "stored",
         "inventory_id": inventory.id,
         "inventory": inventory.inventory_json,
+    }
+
+
+@router.get("/{server_id}/raid/plan")
+def plan_server_raid(server_id: int, raid_level: str = "RAID1", db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    adapter = AdapterService().build_for_server(server)
+    if not server.bmc_ip:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="BMC/iLO IP is not configured.")
+    if not adapter.context.credential:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Validated iLO credential is required.")
+
+    normalized_raid_level = raid_level.upper()
+    if normalized_raid_level not in {"RAID1", "RAID5"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Supported preview levels are RAID1 and RAID5.")
+
+    try:
+        raid_config = adapter.get_raid_config()
+    except RedfishError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Redfish RAID read failed: {exc}") from exc
+
+    raid_summary = raid_config.get("raid") if isinstance(raid_config, dict) else {}
+    recommendations = raid_summary.get("recommendations") if isinstance(raid_summary, dict) else []
+    matching = [
+        recommendation
+        for recommendation in recommendations
+        if isinstance(recommendation, dict) and recommendation.get("raid_level") == normalized_raid_level
+    ]
+    return {
+        "server_id": server.id,
+        "serial_number": server.serial_number,
+        "raid_level": normalized_raid_level,
+        "apply_supported": False,
+        "destructive": True,
+        "message": "Preview only. RAID apply will be added as a queued job with explicit destructive confirmation.",
+        "eligible": bool(matching and matching[0].get("eligible")),
+        "recommendation": matching[0] if matching else None,
+        "raid": raid_summary,
     }
 
 
