@@ -160,7 +160,7 @@ function HealthValue({ value }: { value: string }) {
   const isBad = normalized.includes('critical') || normalized.includes('warning') || normalized.includes('disabled');
 
   return (
-    <Stack direction="row" spacing={0.8} alignItems="center">
+    <Stack direction="row" spacing={0.8} alignItems="center" sx={{ whiteSpace: 'nowrap' }}>
       <Box
         sx={{
           width: 10,
@@ -170,7 +170,7 @@ function HealthValue({ value }: { value: string }) {
           flex: '0 0 auto',
         }}
       />
-      <Typography component="span" sx={{ fontWeight: 800 }}>
+      <Typography component="span" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
         {value || '-'}
       </Typography>
     </Stack>
@@ -190,11 +190,13 @@ function InventoryTable({
   rows,
   emptyText,
   maxHeight = 460,
+  minWidth = 1040,
 }: {
   columns: InventoryColumn[];
   rows: InventoryRow[];
   emptyText: string;
   maxHeight?: number;
+  minWidth?: number;
 }) {
   if (!rows.length) {
     return <Typography color="text.secondary">{emptyText}</Typography>;
@@ -210,7 +212,7 @@ function InventoryTable({
         bgcolor: '#ffffff',
       }}
     >
-      <Table size="small" stickyHeader>
+      <Table size="small" stickyHeader sx={{ minWidth, tableLayout: 'fixed' }}>
         <TableHead>
           <TableRow>
             {columns.map((column) => (
@@ -239,9 +241,9 @@ function InventoryTable({
                 <TableCell
                   key={column.key}
                   sx={{
-                    py: 1.15,
+                    py: 0.95,
                     verticalAlign: 'top',
-                    overflowWrap: 'anywhere',
+                    overflowWrap: 'break-word',
                     borderColor: 'divider',
                   }}
                 >
@@ -317,13 +319,14 @@ function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> 
         columns={[
           { key: 'type', label: 'Type', width: '140px' },
           { key: 'name', label: 'Name' },
-          { key: 'version', label: 'Version / RAID', width: '180px' },
-          { key: 'capacity', label: 'Capacity', width: '140px' },
-          { key: 'location', label: 'Location', width: '260px' },
-          { key: 'status', label: 'Status', width: '160px' },
+          { key: 'version', label: 'Version / RAID', width: '160px' },
+          { key: 'capacity', label: 'Capacity', width: '120px' },
+          { key: 'location', label: 'Location', width: '300px' },
+          { key: 'status', label: 'Status', width: '230px' },
         ]}
         rows={rows}
         emptyText="No Redfish storage data has been collected yet."
+        minWidth={1280}
       />
       {recommendations.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
@@ -363,12 +366,13 @@ function FirmwareInventorySummary({ inventory }: { inventory: Record<string, unk
       <InventoryTable
         columns={[
           { key: 'name', label: 'Firmware Name' },
-          { key: 'version', label: 'Firmware Version', width: '220px' },
-          { key: 'location', label: 'Location', width: '340px' },
-          { key: 'status', label: 'Status', width: '160px' },
+          { key: 'version', label: 'Firmware Version', width: '260px' },
+          { key: 'location', label: 'Location', width: '360px' },
+          { key: 'status', label: 'Status', width: '210px' },
         ]}
         rows={rows}
         emptyText="No firmware inventory has been collected yet."
+        minWidth={1180}
       />
     </ReadableSection>
   );
@@ -403,10 +407,11 @@ function DeviceInventorySummary({ inventory }: { inventory: Record<string, unkno
           { key: 'revision', label: 'Revision', width: '160px' },
           { key: 'firmware', label: 'Firmware Version', width: '190px' },
           { key: 'state', label: 'State', width: '140px' },
-          { key: 'status', label: 'Status', width: '140px' },
+          { key: 'status', label: 'Status', width: '180px' },
         ]}
         rows={rows}
         emptyText="No device inventory has been collected yet."
+        minWidth={1200}
       />
     </ReadableSection>
   );
