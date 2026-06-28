@@ -39,6 +39,7 @@ ENROLLMENT_TOKEN_TTL = timedelta(minutes=15)
 ENROLLMENT_SECRET = os.environ.get("KDX_ENROLLMENT_SECRET") or secrets.token_urlsafe(32)
 DEFAULT_MANAGED_ILO_USER = os.environ.get("KDX_DEFAULT_ILO_USER", "hpadmin")
 DEFAULT_MANAGED_ILO_PASSWORD = os.environ.get("KDX_DEFAULT_ILO_PASSWORD", "HP1nv3nt")
+REDFISH_INVENTORY_KEYS = ("storage_redfish", "raid", "firmware_inventory", "device_inventory")
 
 
 def b64url_encode(data: bytes) -> str:
@@ -146,6 +147,22 @@ def enriched_inventory_json(server: Server, inventory_json: dict[str, Any] | Non
     return enriched
 
 
+def latest_inventory_json(server: Server) -> dict[str, Any] | None:
+    if not server.inventories:
+        return None
+
+    merged = deepcopy(server.inventories[0].inventory_json or {})
+    for inventory in server.inventories:
+        snapshot = inventory.inventory_json or {}
+        for key in REDFISH_INVENTORY_KEYS:
+            if key not in merged and snapshot.get(key) is not None:
+                merged[key] = deepcopy(snapshot[key])
+        if all(key in merged for key in REDFISH_INVENTORY_KEYS):
+            break
+
+    return enriched_inventory_json(server, merged)
+
+
 def conflict_index(servers: list[Server]) -> dict[int, dict[str, list[dict[str, str]]]]:
     conflicts: dict[int, dict[str, list[dict[str, str]]]] = {server.id: {} for server in servers}
 
@@ -203,7 +220,7 @@ def readiness_for_server(server: Server, conflicts: dict[str, Any]) -> tuple[str
 
 
 def server_to_read(server: Server, conflicts: dict[str, Any] | None = None) -> dict[str, Any]:
-    latest_inventory = enriched_inventory_json(server, server.inventories[0].inventory_json) if server.inventories else None
+    latest_inventory = latest_inventory_json(server)
     conflict_data = conflicts or {}
     readiness_status, readiness_reasons = readiness_for_server(server, conflict_data)
     return {
