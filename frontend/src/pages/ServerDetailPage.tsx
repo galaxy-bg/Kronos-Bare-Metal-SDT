@@ -6,11 +6,17 @@ import {
   Chip,
   CircularProgress,
   Divider,
-  Grid,
   Paper,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   Tooltip,
   Typography,
+  Grid,
 } from '@mui/material';
 import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -111,34 +117,190 @@ function formatCapacity(record: Record<string, unknown>) {
   return textField(record, ['CapacityGB', 'CapacityGiB', 'CapacityMiB', 'SizeBytes']);
 }
 
-function InventoryItem({ title, subtitle, rows }: { title: string; subtitle?: string; rows: Array<[string, ReactNode]> }) {
+function physicalLocationText(record: Record<string, unknown>) {
+  const physical = asRecord(record.PhysicalLocation);
+  const part = asRecord(physical.PartLocation);
   return (
-    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.25, bgcolor: '#ffffff' }}>
-      <Typography sx={{ fontWeight: 900, overflowWrap: 'anywhere' }}>{title}</Typography>
-      {subtitle && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{subtitle}</Typography>}
-      <Stack spacing={0.6} sx={{ mt: 1 }}>
-        {rows.map(([label, value]) => (
-          <Stack key={label} direction="row" spacing={1.5} justifyContent="space-between" alignItems="flex-start">
-            <Typography variant="body2" color="text.secondary">{label}</Typography>
-            <Box sx={{ fontSize: 14, fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>{value}</Box>
-          </Stack>
-        ))}
-      </Stack>
-    </Box>
+    textField(part, ['ServiceLabel', 'LocationOrdinalValue', 'Info'], '') ||
+    textField(physical, ['Info', 'InfoFormat'], '')
+  );
+}
+
+function hpeOemText(record: Record<string, unknown>, keys: string[]) {
+  const oem = asRecord(record.Oem);
+  const hpe = asRecord(oem.Hpe);
+  return textField(hpe, keys, '');
+}
+
+function relatedItemsText(record: Record<string, unknown>) {
+  return asArray(record.RelatedItem)
+    .map((item) => textField(asRecord(item), ['@odata.id'], ''))
+    .filter(Boolean)
+    .map((path) => path.split('/').filter(Boolean).slice(-3).join('/'))
+    .join(', ');
+}
+
+function locationText(record: Record<string, unknown>, fallback = '-') {
+  return (
+    textField(record, ['Location', 'Slot', 'LocationInfo', 'DeviceLocation'], '') ||
+    hpeOemText(record, ['Location', 'DeviceLocation', 'Position', 'Slot']) ||
+    physicalLocationText(record) ||
+    relatedItemsText(record) ||
+    fallback
+  );
+}
+
+function HealthValue({ value }: { value: string }) {
+  const normalized = value.toLowerCase();
+  const isOk = ['ok', 'healthy', 'enabled / ok', 'standbyoffline / ok'].includes(normalized) || normalized.endsWith('/ ok');
+  const isBad = normalized.includes('critical') || normalized.includes('warning') || normalized.includes('disabled');
+
+  return (
+    <Stack direction="row" spacing={0.8} alignItems="center">
+      <Box
+        sx={{
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          bgcolor: isOk ? '#22d89a' : isBad ? '#d94841' : '#a8afb3',
+          flex: '0 0 auto',
+        }}
+      />
+      <Typography component="span" sx={{ fontWeight: 800 }}>
+        {value || '-'}
+      </Typography>
+    </Stack>
+  );
+}
+
+type InventoryColumn = {
+  key: string;
+  label: string;
+  width?: string;
+};
+
+type InventoryRow = Record<string, ReactNode>;
+
+function InventoryTable({
+  columns,
+  rows,
+  emptyText,
+  maxHeight = 460,
+}: {
+  columns: InventoryColumn[];
+  rows: InventoryRow[];
+  emptyText: string;
+  maxHeight?: number;
+}) {
+  if (!rows.length) {
+    return <Typography color="text.secondary">{emptyText}</Typography>;
+  }
+
+  return (
+    <TableContainer
+      sx={{
+        maxHeight,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+        bgcolor: '#ffffff',
+      }}
+    >
+      <Table size="small" stickyHeader>
+        <TableHead>
+          <TableRow>
+            {columns.map((column) => (
+              <TableCell
+                key={column.key}
+                sx={{
+                  width: column.width,
+                  bgcolor: '#f1f4f3',
+                  color: 'text.primary',
+                  fontSize: 15,
+                  fontWeight: 900,
+                  whiteSpace: 'nowrap',
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                {column.label}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row, index) => (
+            <TableRow key={String(row.id ?? index)} hover>
+              {columns.map((column) => (
+                <TableCell
+                  key={column.key}
+                  sx={{
+                    py: 1.15,
+                    verticalAlign: 'top',
+                    overflowWrap: 'anywhere',
+                    borderColor: 'divider',
+                  }}
+                >
+                  {row[column.key] ?? '-'}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }
 
 function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> }) {
   const raid = asRecord(inventory.raid);
-  const controllers = asArray(raid.controllers).slice(0, 6);
-  const drives = asArray(raid.drives).slice(0, 16);
-  const volumes = asArray(raid.volumes).slice(0, 8);
+  const controllers = asArray(raid.controllers);
+  const drives = asArray(raid.drives);
+  const volumes = asArray(raid.volumes);
   const recommendations = asArray(raid.recommendations);
+  const rows: InventoryRow[] = [
+    ...controllers.map((item, index) => {
+      const resource = resourceOf(item);
+      return {
+        id: `controller-${index}`,
+        type: 'Controller',
+        name: textField(resource, ['Name', 'Model', 'Id'], `Controller ${index + 1}`),
+        version: textField(resource, ['FirmwareVersion', 'FirmwarePackageVersion']),
+        capacity: '-',
+        location: locationText(resource),
+        status: <HealthValue value={statusText(resource)} />,
+      };
+    }),
+    ...volumes.map((item, index) => {
+      const resource = resourceOf(item);
+      return {
+        id: `volume-${index}`,
+        type: 'Logical Drive',
+        name: textField(resource, ['Name', 'Id'], `Logical Drive ${index + 1}`),
+        version: textField(resource, ['RAIDType', 'VolumeType', 'VolumeUsage']),
+        capacity: formatCapacity(resource),
+        location: locationText(resource),
+        status: <HealthValue value={statusText(resource)} />,
+      };
+    }),
+    ...drives.map((item, index) => {
+      const resource = resourceOf(item);
+      return {
+        id: `drive-${index}`,
+        type: 'Drive',
+        name: textField(resource, ['Name', 'Model', 'Id'], `Drive ${index + 1}`),
+        version: textField(resource, ['MediaType', 'Protocol']),
+        capacity: formatCapacity(resource),
+        location: locationText(resource),
+        status: <HealthValue value={statusText(resource)} />,
+      };
+    }),
+  ];
 
   return (
     <ReadableSection
       title="Storage & RAID"
-      empty={!controllers.length && !drives.length && !volumes.length}
+      empty={!rows.length}
       emptyText="No Redfish storage data has been collected yet. Run inventory refresh after iLO credentials are validated."
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -147,55 +309,18 @@ function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> 
         <Chip size="small" label={`${textField(raid, ['volume_count'], '0')} volumes`} />
         <Chip size="small" label={raid.apply_supported ? 'RAID apply enabled' : 'RAID preview only'} />
       </Stack>
-      <Grid container spacing={1.5} sx={{ mt: 0.25 }}>
-        {controllers.map((item, index) => {
-          const resource = resourceOf(item);
-          return (
-            <Grid item xs={12} md={6} key={`controller-${index}`}>
-              <InventoryItem
-                title={textField(resource, ['Name', 'Model', 'Id'], `Controller ${index + 1}`)}
-                subtitle={textField(resource, ['Manufacturer', 'PartNumber'], undefined)}
-                rows={[
-                  ['Firmware', textField(resource, ['FirmwareVersion', 'FirmwarePackageVersion'])],
-                  ['Serial', textField(resource, ['SerialNumber'])],
-                  ['Status', statusText(resource)],
-                ]}
-              />
-            </Grid>
-          );
-        })}
-        {volumes.map((item, index) => {
-          const resource = resourceOf(item);
-          return (
-            <Grid item xs={12} md={6} key={`volume-${index}`}>
-              <InventoryItem
-                title={textField(resource, ['Name', 'Id'], `Logical Drive ${index + 1}`)}
-                rows={[
-                  ['RAID', textField(resource, ['RAIDType', 'VolumeType', 'VolumeUsage'])],
-                  ['Capacity', formatCapacity(resource)],
-                  ['Status', statusText(resource)],
-                ]}
-              />
-            </Grid>
-          );
-        })}
-        {drives.map((item, index) => {
-          const resource = resourceOf(item);
-          return (
-            <Grid item xs={12} sm={6} md={4} key={`drive-${index}`}>
-              <InventoryItem
-                title={textField(resource, ['Name', 'Id'], `Drive ${index + 1}`)}
-                rows={[
-                  ['Capacity', formatCapacity(resource)],
-                  ['Media', textField(resource, ['MediaType', 'Protocol'])],
-                  ['Serial', textField(resource, ['SerialNumber'])],
-                  ['Status', statusText(resource)],
-                ]}
-              />
-            </Grid>
-          );
-        })}
-      </Grid>
+      <InventoryTable
+        columns={[
+          { key: 'type', label: 'Type', width: '140px' },
+          { key: 'name', label: 'Name' },
+          { key: 'version', label: 'Version / RAID', width: '180px' },
+          { key: 'capacity', label: 'Capacity', width: '140px' },
+          { key: 'location', label: 'Location', width: '260px' },
+          { key: 'status', label: 'Status', width: '160px' },
+        ]}
+        rows={rows}
+        emptyText="No Redfish storage data has been collected yet."
+      />
       {recommendations.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
           {recommendations.map((item, index) => {
@@ -218,61 +343,67 @@ function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> 
 
 function FirmwareInventorySummary({ inventory }: { inventory: Record<string, unknown> }) {
   const firmware = asRecord(inventory.firmware_inventory);
-  const items = asArray(firmware.items).slice(0, 18);
+  const rows = asArray(firmware.items).map((item, index) => {
+    const resource = resourceOf(item);
+    return {
+      id: `firmware-${index}`,
+      name: textField(resource, ['Name', 'Id', 'SoftwareId'], `Firmware ${index + 1}`),
+      version: textField(resource, ['Version', 'FirmwareVersion']),
+      location: locationText(resource),
+      status: <HealthValue value={statusText(resource)} />,
+    };
+  });
+
   return (
-    <ReadableSection title="Firmware Inventory" empty={!items.length} emptyText="No firmware inventory has been collected yet.">
-      <Grid container spacing={1.5}>
-        {items.map((item, index) => {
-          const resource = resourceOf(item);
-          return (
-            <Grid item xs={12} sm={6} md={4} key={`firmware-${index}`}>
-              <InventoryItem
-                title={textField(resource, ['Name', 'Id', 'SoftwareId'], `Firmware ${index + 1}`)}
-                subtitle={textField(resource, ['Description', 'Manufacturer'], undefined)}
-                rows={[
-                  ['Version', textField(resource, ['Version', 'FirmwareVersion'])],
-                  ['Updateable', textField(resource, ['Updateable'])],
-                  ['Status', statusText(resource)],
-                ]}
-              />
-            </Grid>
-          );
-        })}
-      </Grid>
+    <ReadableSection title="Firmware Inventory" empty={!rows.length} emptyText="No firmware inventory has been collected yet.">
+      <InventoryTable
+        columns={[
+          { key: 'name', label: 'Firmware Name' },
+          { key: 'version', label: 'Firmware Version', width: '220px' },
+          { key: 'location', label: 'Location', width: '340px' },
+          { key: 'status', label: 'Status', width: '160px' },
+        ]}
+        rows={rows}
+        emptyText="No firmware inventory has been collected yet."
+      />
     </ReadableSection>
   );
 }
 
 function DeviceInventorySummary({ inventory }: { inventory: Record<string, unknown> }) {
   const deviceInventory = asRecord(inventory.device_inventory);
-  const devices = asArray(deviceInventory.devices).slice(0, 18);
+  const rows = asArray(deviceInventory.devices).map((item, index) => {
+    const record = asRecord(item);
+    const resource = resourceOf(item);
+    return {
+      id: `device-${index}`,
+      location: locationText(resource, textField(record, ['category'], '-')),
+      name: textField(resource, ['Name', 'Model', 'Id'], `Device ${index + 1}`),
+      revision: textField(resource, ['Revision', 'HardwareRevision', 'PartNumber', 'SKU'], hpeOemText(resource, ['Revision', 'HardwareRevision', 'PartNumber'])),
+      firmware: textField(resource, ['FirmwareVersion', 'FirmwarePackageVersion', 'Version'], hpeOemText(resource, ['FirmwareVersion', 'CurrentVersion', 'Version'])),
+      state: textField(asRecord(resource.Status), ['State'], '-'),
+      status: <HealthValue value={textField(asRecord(resource.Status), ['HealthRollup', 'Health'], '-')} />,
+    };
+  });
   const summary = asRecord(deviceInventory.summary);
   return (
-    <ReadableSection title="Device Inventory" empty={!devices.length} emptyText="No device inventory has been collected yet.">
+    <ReadableSection title="Device Inventory" empty={!rows.length} emptyText="No device inventory has been collected yet.">
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" label={`${textField(summary, ['chassis_count'], '0')} chassis`} />
         <Chip size="small" label={`${textField(summary, ['device_count'], '0')} devices`} />
       </Stack>
-      <Grid container spacing={1.5} sx={{ mt: 0.25 }}>
-        {devices.map((item, index) => {
-          const record = asRecord(item);
-          const resource = resourceOf(item);
-          return (
-            <Grid item xs={12} sm={6} md={4} key={`device-${index}`}>
-              <InventoryItem
-                title={textField(resource, ['Name', 'Model', 'Id'], `Device ${index + 1}`)}
-                subtitle={textField(record, ['category'])}
-                rows={[
-                  ['Manufacturer', textField(resource, ['Manufacturer'])],
-                  ['Part', textField(resource, ['PartNumber', 'SKU'])],
-                  ['Serial', textField(resource, ['SerialNumber'])],
-                  ['Status', statusText(resource)],
-                ]}
-              />
-            </Grid>
-          );
-        })}
-      </Grid>
+      <InventoryTable
+        columns={[
+          { key: 'location', label: 'Location', width: '180px' },
+          { key: 'name', label: 'Device Name' },
+          { key: 'revision', label: 'Revision', width: '160px' },
+          { key: 'firmware', label: 'Firmware Version', width: '190px' },
+          { key: 'state', label: 'State', width: '140px' },
+          { key: 'status', label: 'Status', width: '140px' },
+        ]}
+        rows={rows}
+        emptyText="No device inventory has been collected yet."
+      />
     </ReadableSection>
   );
 }
