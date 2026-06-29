@@ -29,7 +29,11 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DevicesIcon from '@mui/icons-material/Devices';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import SettingsIcon from '@mui/icons-material/Settings';
+import StorageIcon from '@mui/icons-material/Storage';
+import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
 import { fetchServer, planRaid } from '../api/client';
 import type { RaidPlanResult, ServerDetail } from '../types';
@@ -276,7 +280,7 @@ function InventoryTable({
   );
 }
 
-function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> }) {
+function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inventory: Record<string, unknown> }) {
   const raid = asRecord(inventory.raid);
   const controllers = asArray(raid.controllers);
   const drives = asArray(raid.drives);
@@ -323,9 +327,11 @@ function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> 
 
   return (
     <ReadableSection
+      icon={<StorageIcon />}
       title="Storage & RAID"
       empty={!rows.length}
       emptyText="No Redfish storage data has been collected yet. Run inventory refresh after iLO credentials are validated."
+      defaultExpanded
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" label={`${textField(raid, ['controller_count'], '0')} controllers`} />
@@ -362,6 +368,7 @@ function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> 
           })}
         </Stack>
       )}
+      <RaidConfigPanel server={server} inventory={inventory} />
     </ReadableSection>
   );
 }
@@ -414,7 +421,12 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
   }
 
   return (
-    <CollapsiblePanel title="RAID Config" defaultExpanded panelId="raid-config">
+    <CollapsiblePanel
+      title="RAID Config"
+      defaultExpanded={typeof window !== 'undefined' && window.location.hash === '#raid-config'}
+      panelId="raid-config"
+      icon={<SettingsIcon />}
+    >
       <Stack spacing={2}>
         <Alert severity="warning" sx={{ border: '1px solid #f2d6a2', bgcolor: '#fff8eb' }}>
           Preview only. No RAID changes are applied from this screen.
@@ -559,7 +571,12 @@ function FirmwareInventorySummary({ inventory }: { inventory: Record<string, unk
   });
 
   return (
-    <ReadableSection title="Firmware Inventory" empty={!rows.length} emptyText="No firmware inventory has been collected yet.">
+    <ReadableSection
+      icon={<SystemUpdateAltIcon />}
+      title="Firmware Inventory"
+      empty={!rows.length}
+      emptyText="No firmware inventory has been collected yet."
+    >
       <InventoryTable
         columns={[
           { key: 'name', label: 'Firmware Name' },
@@ -592,7 +609,12 @@ function DeviceInventorySummary({ inventory }: { inventory: Record<string, unkno
   });
   const summary = asRecord(deviceInventory.summary);
   return (
-    <ReadableSection title="Device Inventory" empty={!rows.length} emptyText="No device inventory has been collected yet.">
+    <ReadableSection
+      icon={<DevicesIcon />}
+      title="Device Inventory"
+      empty={!rows.length}
+      emptyText="No device inventory has been collected yet."
+    >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" label={`${textField(summary, ['chassis_count'], '0')} chassis`} />
         <Chip size="small" label={`${textField(summary, ['device_count'], '0')} devices`} />
@@ -614,8 +636,22 @@ function DeviceInventorySummary({ inventory }: { inventory: Record<string, unkno
   );
 }
 
-function ReadableSection({ title, empty, emptyText, children }: { title: string; empty: boolean; emptyText: string; children: ReactNode }) {
-  const [expanded, setExpanded] = useState(true);
+function ReadableSection({
+  title,
+  icon,
+  empty,
+  emptyText,
+  defaultExpanded = false,
+  children,
+}: {
+  title: string;
+  icon?: ReactNode;
+  empty: boolean;
+  emptyText: string;
+  defaultExpanded?: boolean;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <Accordion
@@ -631,9 +667,12 @@ function ReadableSection({ title, empty, emptyText, children }: { title: string;
       }}
     >
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-          {title}
-        </Typography>
+        <Stack direction="row" spacing={1.2} alignItems="center">
+          {icon && <Box sx={{ color: 'primary.main', display: 'flex', '& svg': { fontSize: 22 } }}>{icon}</Box>}
+          <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+            {title}
+          </Typography>
+        </Stack>
       </AccordionSummary>
       <AccordionDetails sx={{ pt: 0 }}>
         {empty ? (
@@ -650,11 +689,13 @@ function CollapsiblePanel({
   title,
   defaultExpanded,
   panelId,
+  icon,
   children,
 }: {
   title: string;
   defaultExpanded: boolean;
   panelId?: string;
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -673,9 +714,12 @@ function CollapsiblePanel({
       }}
     >
       <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: { xs: 2, md: 2.5 } }}>
-        <Typography variant="h6" sx={{ fontWeight: 900 }}>
-          {title}
-        </Typography>
+        <Stack direction="row" spacing={1.2} alignItems="center">
+          {icon && <Box sx={{ color: 'primary.main', display: 'flex', '& svg': { fontSize: 23 } }}>{icon}</Box>}
+          <Typography variant="h6" sx={{ fontWeight: 900 }}>
+            {title}
+          </Typography>
+        </Stack>
       </AccordionSummary>
       <AccordionDetails sx={{ px: { xs: 2, md: 2.5 }, pt: 0, pb: { xs: 2, md: 2.5 } }}>
         <Divider sx={{ mb: 2, borderColor: 'divider' }} />
@@ -804,13 +848,11 @@ export function ServerDetailPage() {
 
       <CollapsiblePanel title="Inventory Summary" defaultExpanded>
         <Stack spacing={2.5}>
-          <StorageRaidSummary inventory={latestInventory} />
+          <StorageRaidSummary server={server} inventory={latestInventory} />
           <FirmwareInventorySummary inventory={latestInventory} />
           <DeviceInventorySummary inventory={latestInventory} />
         </Stack>
       </CollapsiblePanel>
-
-      <RaidConfigPanel server={server} inventory={latestInventory} />
 
       <CollapsiblePanel title="Raw Inventory" defaultExpanded={false}>
         <Grid container spacing={2}>
