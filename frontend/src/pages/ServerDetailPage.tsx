@@ -35,7 +35,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
-import { fetchServer, planRaid } from '../api/client';
+import { applyRaidPlan, fetchServer, planRaid } from '../api/client';
 import type { RaidPlanResult, ServerDetail } from '../types';
 
 function formatDate(value: string) {
@@ -385,6 +385,10 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<RaidPlanResult | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
+  const [applyConfirmation, setApplyConfirmation] = useState('');
+  const [applying, setApplying] = useState(false);
+  const [applyMessage, setApplyMessage] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   const selectedSet = new Set(selectedDrivePaths);
   const hasRedfishAccess = Boolean(server.bmc_ip && server.management_config_json?.credential?.verified);
@@ -398,6 +402,8 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
 
   function toggleDrive(path: string) {
     setPlan(null);
+    setApplyMessage(null);
+    setApplyError(null);
     setSelectedDrivePaths((current) => (current.includes(path) ? current.filter((item) => item !== path) : [...current, path]));
   }
 
@@ -405,6 +411,9 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
     setPlanning(true);
     setPlan(null);
     setPlanError(null);
+    setApplyMessage(null);
+    setApplyError(null);
+    setApplyConfirmation('');
     try {
       const result = await planRaid(server.id, {
         disk_mode: diskMode,
@@ -420,6 +429,30 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
       setPlanError('RAID plan could not be created from Redfish data.');
     } finally {
       setPlanning(false);
+    }
+  }
+
+  async function stageApply() {
+    setApplying(true);
+    setApplyMessage(null);
+    setApplyError(null);
+    try {
+      const action = await applyRaidPlan(server.id, {
+        disk_mode: diskMode,
+        raid_level: diskMode === 'RAID' ? raidLevel : 'NON_RAID',
+        purpose,
+        volume_name: diskMode === 'RAID' ? volumeName : 'non-raid',
+        selected_drive_paths: selectedDrivePaths,
+        bootable,
+        initialize_as_jbod: diskMode === 'NON_RAID',
+        confirmation: applyConfirmation,
+      });
+      setApplyMessage(`Storage apply request staged as task #${action.id}. Executor is not enabled yet.`);
+      setApplyConfirmation('');
+    } catch {
+      setApplyError(`Storage apply could not be staged. Type APPLY ${server.serial_number} and make sure the plan is still eligible.`);
+    } finally {
+      setApplying(false);
     }
   }
 
@@ -446,6 +479,9 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
             value={diskMode}
             onChange={(event) => {
               setPlan(null);
+              setApplyMessage(null);
+              setApplyError(null);
+              setApplyConfirmation('');
               setDiskMode(event.target.value as 'RAID' | 'NON_RAID');
             }}
             size="small"
@@ -572,6 +608,32 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
                 </Stack>
               ))}
             </Stack>
+            {plan.eligible && (
+              <Stack spacing={1.25} sx={{ border: '1px solid', borderColor: '#f0d9a3', bgcolor: '#fffaf0', borderRadius: 1, p: 1.5 }}>
+                <Alert severity="warning">
+                  Stage only. This records a guarded storage apply request; no storage changes are executed until the backend executor is enabled.
+                </Alert>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', md: 'center' }}>
+                  <TextField
+                    label={`Type APPLY ${server.serial_number}`}
+                    value={applyConfirmation}
+                    onChange={(event) => setApplyConfirmation(event.target.value)}
+                    size="small"
+                    sx={{ minWidth: 280 }}
+                  />
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    onClick={stageApply}
+                    disabled={applying || applyConfirmation !== `APPLY ${server.serial_number}`}
+                  >
+                    {applying ? 'Staging...' : 'Stage Apply Request'}
+                  </Button>
+                </Stack>
+              </Stack>
+            )}
+            {applyMessage && <Alert severity="success">{applyMessage}</Alert>}
+            {applyError && <Alert severity="error">{applyError}</Alert>}
           </Stack>
         )}
       </Stack>

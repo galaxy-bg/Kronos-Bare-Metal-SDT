@@ -9,6 +9,7 @@ import type {
   IloUserActionPayload,
   InventoryRefreshResult,
   ManagementConfig,
+  RaidApplyPayload,
   RaidPlanPayload,
   RaidPlanResult,
   ServerAction,
@@ -91,6 +92,11 @@ export async function refreshServerInventory(serverId: number): Promise<Inventor
 
 export async function planRaid(serverId: number, payload: RaidPlanPayload): Promise<RaidPlanResult> {
   const response = await api.post<RaidPlanResult>(`/api/v1/servers/${serverId}/raid/plan`, payload);
+  return response.data;
+}
+
+export async function applyRaidPlan(serverId: number, payload: RaidApplyPayload): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/${serverId}/raid/apply`, payload);
   return response.data;
 }
 

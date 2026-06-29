@@ -24,6 +24,7 @@ from app.schemas.action import (
     IloLicenseActionRequest,
     IloNetworkActionRequest,
     IloUserActionRequest,
+    RaidApplyRequest,
     RaidPlanRequest,
     ServerActionRead,
 )
@@ -483,7 +484,7 @@ def recent_server_actions(
         select(ServerAction)
         .where(
             or_(
-                ServerAction.status.in_(("pending", "running")),
+                ServerAction.status.in_(("planned", "pending", "running")),
                 ServerAction.completed_at >= completed_cutoff,
             )
         )
@@ -669,6 +670,62 @@ def plan_selected_server_raid(server_id: int, payload: RaidPlanRequest, db: Sess
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Redfish RAID read failed: {exc}") from exc
 
     return build_raid_plan(server, payload, raid_config)
+
+
+@router.post("/{server_id}/raid/apply", response_model=ServerActionRead, status_code=status.HTTP_201_CREATED)
+def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    expected_confirmation = f"APPLY {server.serial_number}"
+    if payload.confirmation != expected_confirmation:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Type '{expected_confirmation}' to stage this storage apply request.")
+
+    adapter = AdapterService().build_for_server(server)
+    if not server.bmc_ip:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="BMC/iLO IP is not configured.")
+    if not adapter.context.credential:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Validated iLO credential is required.")
+
+    try:
+        raid_config = adapter.get_raid_config()
+    except RedfishError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Redfish RAID read failed: {exc}") from exc
+
+    plan = build_raid_plan(server, payload, raid_config)
+    if not plan.get("eligible"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Storage plan is not eligible. Fix the failed checks before staging apply.")
+
+    action = ServerAction(
+        server_id=server.id,
+        action_type="hpe_storage_apply_plan",
+        status="planned",
+        payload_json={
+            "bmc_ip": server.bmc_ip,
+            "disk_mode": plan["disk_mode"],
+            "raid_level": plan["raid_level"],
+            "purpose": plan["purpose"],
+            "volume_name": plan["volume_name"],
+            "bootable": plan["bootable"],
+            "selected_drive_paths": plan["selected_drive_paths"],
+            "selected_drives": plan["selected_drives"],
+            "destructive": True,
+            "executor": "not_enabled",
+            "auth": {
+                "username": adapter.context.credential.username,
+                "password": adapter.context.credential.password,
+            },
+        },
+        result_json={
+            "message": "Storage apply request staged. Executor is not enabled yet; no storage changes were applied.",
+            "plan_checks": plan["checks"],
+        },
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
 
 
 @router.post("/{server_id}/deregister", response_model=ServerRead)

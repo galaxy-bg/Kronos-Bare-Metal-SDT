@@ -131,6 +131,10 @@ export type RaidPlanPayload = {
   initialize_as_jbod: boolean;
 };
 
+export type RaidApplyPayload = RaidPlanPayload & {
+  confirmation: string;
+};
+
 export type RaidPlanResult = {
   server_id: number;
   serial_number: string;

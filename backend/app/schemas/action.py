@@ -104,6 +104,18 @@ class RaidPlanRequest(BaseModel):
         return paths
 
 
+class RaidApplyRequest(RaidPlanRequest):
+    confirmation: str = Field(min_length=1, max_length=128)
+
+    @field_validator("confirmation")
+    @classmethod
+    def strip_confirmation(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Confirmation cannot be empty")
+        return stripped
+
+
 class IloEnrollmentCreateResponse(BaseModel):
     token: str
     url: str

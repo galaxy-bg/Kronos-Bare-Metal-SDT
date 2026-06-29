@@ -224,6 +224,13 @@ function StatusChip({ status }: { status: string }) {
 
 function ActionStatusChip({ status }: { status: string }) {
   const variants: Record<string, { label: string; color: string; bg: string; border: string; icon: ReactElement }> = {
+    planned: {
+      label: 'Planned',
+      color: '#5f4a98',
+      bg: '#f3efff',
+      border: '#d8cdf7',
+      icon: <PendingActionsIcon />,
+    },
     pending: {
       label: 'Queued',
       color: '#75611d',
