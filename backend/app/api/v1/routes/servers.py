@@ -24,6 +24,7 @@ from app.schemas.action import (
     IloLicenseActionRequest,
     IloNetworkActionRequest,
     IloUserActionRequest,
+    RaidPlanRequest,
     ServerActionRead,
 )
 from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ServerDetail, ServerRead, ServerUpdate
@@ -161,6 +162,127 @@ def latest_inventory_json(server: Server) -> dict[str, Any] | None:
             break
 
     return enriched_inventory_json(server, merged)
+
+
+def nested_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def raid_drive_path(drive: dict[str, Any]) -> str | None:
+    path = drive.get("path")
+    if isinstance(path, str) and path:
+        return path
+    resource = nested_dict(drive.get("resource"))
+    odata_id = resource.get("@odata.id")
+    return str(odata_id) if odata_id else None
+
+
+def raid_drive_label(drive: dict[str, Any]) -> str:
+    resource = nested_dict(drive.get("resource"))
+    location = nested_dict(nested_dict(resource.get("PhysicalLocation")).get("PartLocation"))
+    return (
+        str(location.get("ServiceLabel") or "")
+        or str(resource.get("Name") or resource.get("Model") or resource.get("Id") or "")
+        or str(raid_drive_path(drive) or "Drive")
+    )
+
+
+def raid_drive_summary(drive: dict[str, Any]) -> dict[str, Any]:
+    resource = nested_dict(drive.get("resource"))
+    status_payload = nested_dict(resource.get("Status"))
+    links = nested_dict(resource.get("Links"))
+    volumes = links.get("Volumes")
+    volume_count = resource.get("Volumes@odata.count")
+    if not isinstance(volume_count, int):
+        volume_count = len(volumes) if isinstance(volumes, list) else 0
+    return {
+        "path": raid_drive_path(drive),
+        "label": raid_drive_label(drive),
+        "name": resource.get("Name"),
+        "model": resource.get("Model"),
+        "serial_number": resource.get("SerialNumber"),
+        "capacity_bytes": resource.get("CapacityBytes"),
+        "media_type": resource.get("MediaType"),
+        "protocol": resource.get("Protocol"),
+        "state": status_payload.get("State"),
+        "health": status_payload.get("Health"),
+        "volume_count": volume_count,
+        "location": raid_drive_label(drive),
+    }
+
+
+def raid_plan_requirement(raid_level: str) -> tuple[int, int | None]:
+    if raid_level == "RAID1":
+        return 2, 2
+    if raid_level == "RAID5":
+        return 3, None
+    if raid_level == "RAID6":
+        return 4, None
+    if raid_level == "RAID10":
+        return 4, None
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Supported preview levels are RAID1, RAID5, RAID6 and RAID10.")
+
+
+def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[str, Any]) -> dict[str, Any]:
+    raid_summary = nested_dict(raid_config.get("raid"))
+    drive_items = raid_summary.get("drives")
+    drives = [item for item in drive_items if isinstance(item, dict)] if isinstance(drive_items, list) else []
+    drive_by_path = {path: drive for drive in drives if (path := raid_drive_path(drive))}
+    raid_level = payload.raid_level.upper()
+    minimum_drives, exact_drives = raid_plan_requirement(raid_level)
+    selected = [drive_by_path[path] for path in payload.selected_drive_paths if path in drive_by_path]
+    missing_paths = [path for path in payload.selected_drive_paths if path not in drive_by_path]
+    selected_summaries = [raid_drive_summary(drive) for drive in selected]
+
+    checks: list[dict[str, Any]] = []
+
+    def add_check(name: str, passed: bool, message: str) -> None:
+        checks.append({"name": name, "passed": passed, "message": message})
+
+    selected_count = len(selected)
+    count_ok = selected_count >= minimum_drives and (exact_drives is None or selected_count == exact_drives)
+    expected_count = f"exactly {exact_drives}" if exact_drives is not None else f"at least {minimum_drives}"
+    add_check(
+        "drive-count",
+        count_ok,
+        f"{raid_level} requires {expected_count} selected drive{'s' if (exact_drives or minimum_drives) != 1 else ''}.",
+    )
+    add_check("drive-exists", not missing_paths, "All selected drives must be visible in the current Redfish RAID inventory.")
+
+    absent = [drive for drive in selected_summaries if str(drive.get("state") or "").lower() == "absent"]
+    add_check("drive-present", not absent, "Selected drives must be present; empty bays cannot be used.")
+
+    unhealthy = [
+        drive
+        for drive in selected_summaries
+        if str(drive.get("health") or "").lower() not in {"ok", "healthy"}
+    ]
+    add_check("drive-health", not unhealthy, "Selected drives must report healthy/OK status.")
+
+    assigned = [drive for drive in selected_summaries if int(drive.get("volume_count") or 0) > 0]
+    add_check("drive-unassigned", not assigned, "Selected drives must not already belong to a Redfish volume.")
+
+    if raid_level == "RAID10":
+        add_check("raid10-even-count", selected_count % 2 == 0, "RAID10 requires an even number of selected drives.")
+
+    eligible = all(check["passed"] for check in checks)
+    return {
+        "server_id": server.id,
+        "serial_number": server.serial_number,
+        "raid_level": raid_level,
+        "purpose": payload.purpose,
+        "volume_name": payload.volume_name,
+        "bootable": payload.bootable,
+        "selected_drive_paths": payload.selected_drive_paths,
+        "selected_drives": selected_summaries,
+        "missing_drive_paths": missing_paths,
+        "checks": checks,
+        "eligible": eligible,
+        "apply_supported": False,
+        "destructive": True,
+        "message": "Preview only. No RAID changes were applied. Next step will require explicit destructive confirmation.",
+        "raid": raid_summary,
+    }
 
 
 def conflict_index(servers: list[Server]) -> dict[int, dict[str, list[dict[str, str]]]]:
@@ -511,6 +633,26 @@ def plan_server_raid(server_id: int, raid_level: str = "RAID1", db: Session = De
         "recommendation": matching[0] if matching else None,
         "raid": raid_summary,
     }
+
+
+@router.post("/{server_id}/raid/plan")
+def plan_selected_server_raid(server_id: int, payload: RaidPlanRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    adapter = AdapterService().build_for_server(server)
+    if not server.bmc_ip:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="BMC/iLO IP is not configured.")
+    if not adapter.context.credential:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Validated iLO credential is required.")
+
+    try:
+        raid_config = adapter.get_raid_config()
+    except RedfishError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Redfish RAID read failed: {exc}") from exc
+
+    return build_raid_plan(server, payload, raid_config)
 
 
 @router.post("/{server_id}/deregister", response_model=ServerRead)

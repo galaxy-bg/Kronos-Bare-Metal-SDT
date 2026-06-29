@@ -203,15 +203,18 @@ export function IloEnrollmentPage() {
   const [password, setPassword] = useState('');
   const [dnsName, setDnsName] = useState('');
   const [createManagedUser, setCreateManagedUser] = useState(true);
+  const [closeAfterSubmit, setCloseAfterSubmit] = useState(true);
   const [detectedValues, setDetectedValues] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [liveScanning, setLiveScanning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
 
   const title = useMemo(() => info?.hostname ?? info?.serial_number ?? 'iLO Enrollment', [info]);
 
@@ -229,8 +232,14 @@ export function IloEnrollmentPage() {
     return () => {
       scannerControlsRef.current?.stop();
       scannerControlsRef.current = null;
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
     };
   }, []);
+
+  function closeTab() {
+    window.close();
+    setSuccess('Credential verification task queued. You can close this tab.');
+  }
 
   async function scanImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -337,7 +346,12 @@ export function IloEnrollmentPage() {
         dns_name: dnsName || null,
         create_managed_user: createManagedUser,
       });
-      setSuccess('Credential verification task queued.');
+      setSubmitted(true);
+      stopLiveScan();
+      setSuccess(closeAfterSubmit ? 'Credential verification task queued. Closing tab...' : 'Credential verification task queued.');
+      if (closeAfterSubmit) {
+        closeTimerRef.current = window.setTimeout(closeTab, 900);
+      }
     } catch {
       setError('Credential could not be submitted.');
     } finally {
@@ -461,9 +475,20 @@ export function IloEnrollmentPage() {
             control={<Checkbox checked={createManagedUser} onChange={(event) => setCreateManagedUser(event.target.checked)} />}
             label="Create managed hpadmin account"
           />
-          <Button variant="contained" onClick={submit} disabled={saving || !username.trim() || !password.trim()}>
-            {saving ? 'Submitting...' : 'Verify & Enroll'}
-          </Button>
+          <FormControlLabel
+            control={<Checkbox checked={closeAfterSubmit} onChange={(event) => setCloseAfterSubmit(event.target.checked)} />}
+            label="Close tab after queueing"
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button variant="contained" onClick={submit} disabled={saving || submitted || !username.trim() || !password.trim()} fullWidth>
+              {saving ? 'Submitting...' : submitted ? 'Queued' : 'Verify & Enroll'}
+            </Button>
+            {submitted && (
+              <Button variant="outlined" startIcon={<CloseIcon />} onClick={closeTab} fullWidth>
+                Close Tab
+              </Button>
+            )}
+          </Stack>
         </Stack>
       </Paper>
     </Stack>

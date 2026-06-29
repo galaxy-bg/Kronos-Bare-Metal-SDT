@@ -7,7 +7,10 @@ import type {
   IloEnrollmentSubmitPayload,
   IloLicenseActionPayload,
   IloUserActionPayload,
+  InventoryRefreshResult,
   ManagementConfig,
+  RaidPlanPayload,
+  RaidPlanResult,
   ServerAction,
   ServerDetail,
   ServerSummary,
@@ -78,6 +81,16 @@ export async function fetchIloEnrollment(token: string): Promise<IloEnrollmentIn
 
 export async function submitIloEnrollment(token: string, payload: IloEnrollmentSubmitPayload): Promise<ServerAction> {
   const response = await api.post<ServerAction>(`/api/v1/servers/ilo-enrollment/${token}/submit`, payload);
+  return response.data;
+}
+
+export async function refreshServerInventory(serverId: number): Promise<InventoryRefreshResult> {
+  const response = await api.get<InventoryRefreshResult>(`/api/v1/servers/${serverId}/inventory/refresh`);
+  return response.data;
+}
+
+export async function planRaid(serverId: number, payload: RaidPlanPayload): Promise<RaidPlanResult> {
+  const response = await api.post<RaidPlanResult>(`/api/v1/servers/${serverId}/raid/plan`, payload);
   return response.data;
 }
 

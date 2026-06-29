@@ -6,9 +6,12 @@ import {
   AccordionSummary,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Divider,
+  FormControlLabel,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -17,6 +20,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   Tooltip,
   Typography,
   Grid,
@@ -27,8 +31,8 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { fetchServer } from '../api/client';
-import type { ServerDetail } from '../types';
+import { fetchServer, planRaid } from '../api/client';
+import type { RaidPlanResult, ServerDetail } from '../types';
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -93,6 +97,20 @@ function asArray(value: unknown): unknown[] {
 function resourceOf(value: unknown): Record<string, unknown> {
   const record = asRecord(value);
   return asRecord(record.resource);
+}
+
+function pathOf(value: unknown) {
+  const record = asRecord(value);
+  const resource = resourceOf(value);
+  return textField(record, ['path'], '') || textField(resource, ['@odata.id'], '');
+}
+
+function volumeCountOf(resource: Record<string, unknown>) {
+  const direct = resource['Volumes@odata.count'];
+  if (typeof direct === 'number' && Number.isFinite(direct)) return direct;
+  const links = asRecord(resource.Links);
+  const volumes = asArray(links.Volumes);
+  return volumes.length;
 }
 
 function textField(record: Record<string, unknown>, keys: string[], fallback = '-') {
@@ -345,6 +363,185 @@ function StorageRaidSummary({ inventory }: { inventory: Record<string, unknown> 
         </Stack>
       )}
     </ReadableSection>
+  );
+}
+
+function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventory: Record<string, unknown> }) {
+  const raid = asRecord(inventory.raid);
+  const drives = asArray(raid.drives);
+  const [raidLevel, setRaidLevel] = useState('RAID1');
+  const [purpose, setPurpose] = useState('OS Boot');
+  const [volumeName, setVolumeName] = useState('os-boot');
+  const [bootable, setBootable] = useState(true);
+  const [selectedDrivePaths, setSelectedDrivePaths] = useState<string[]>([]);
+  const [planning, setPlanning] = useState(false);
+  const [plan, setPlan] = useState<RaidPlanResult | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  const selectedSet = new Set(selectedDrivePaths);
+  const hasRedfishAccess = Boolean(server.bmc_ip && server.management_config_json?.credential?.verified);
+
+  function driveSelectable(resource: Record<string, unknown>) {
+    const status = asRecord(resource.Status);
+    const state = textField(status, ['State'], '').toLowerCase();
+    const health = textField(status, ['HealthRollup', 'Health'], '').toLowerCase();
+    return state !== 'absent' && ['ok', 'healthy'].includes(health) && volumeCountOf(resource) === 0;
+  }
+
+  function toggleDrive(path: string) {
+    setPlan(null);
+    setSelectedDrivePaths((current) => (current.includes(path) ? current.filter((item) => item !== path) : [...current, path]));
+  }
+
+  async function previewPlan() {
+    setPlanning(true);
+    setPlan(null);
+    setPlanError(null);
+    try {
+      const result = await planRaid(server.id, {
+        raid_level: raidLevel,
+        purpose,
+        volume_name: volumeName,
+        selected_drive_paths: selectedDrivePaths,
+        bootable,
+      });
+      setPlan(result);
+    } catch {
+      setPlanError('RAID plan could not be created from Redfish data.');
+    } finally {
+      setPlanning(false);
+    }
+  }
+
+  return (
+    <CollapsiblePanel title="RAID Config" defaultExpanded>
+      <Stack spacing={2}>
+        <Alert severity="warning" sx={{ border: '1px solid #f2d6a2', bgcolor: '#fff8eb' }}>
+          Preview only. No RAID changes are applied from this screen.
+        </Alert>
+        {!hasRedfishAccess && (
+          <Alert severity="info">
+            BMC IP and validated iLO credentials are required before RAID planning can be checked against Redfish.
+          </Alert>
+        )}
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+          <TextField select label="Purpose" value={purpose} onChange={(event) => setPurpose(event.target.value)} size="small" sx={{ minWidth: 180 }}>
+            <MenuItem value="OS Boot">OS Boot</MenuItem>
+            <MenuItem value="Data">Data</MenuItem>
+            <MenuItem value="Custom">Custom</MenuItem>
+          </TextField>
+          <TextField select label="RAID Level" value={raidLevel} onChange={(event) => setRaidLevel(event.target.value)} size="small" sx={{ minWidth: 160 }}>
+            <MenuItem value="RAID1">RAID1</MenuItem>
+            <MenuItem value="RAID5">RAID5</MenuItem>
+            <MenuItem value="RAID6">RAID6</MenuItem>
+            <MenuItem value="RAID10">RAID10</MenuItem>
+          </TextField>
+          <TextField label="Volume Name" value={volumeName} onChange={(event) => setVolumeName(event.target.value)} size="small" sx={{ minWidth: 220 }} />
+          <FormControlLabel
+            control={<Checkbox checked={bootable} onChange={(event) => setBootable(event.target.checked)} />}
+            label="Bootable"
+          />
+          <Box sx={{ flex: 1 }} />
+          <Button
+            variant="contained"
+            onClick={previewPlan}
+            disabled={!hasRedfishAccess || planning || selectedDrivePaths.length === 0 || !volumeName.trim()}
+          >
+            {planning ? 'Checking...' : 'Check Plan'}
+          </Button>
+        </Stack>
+
+        <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: '#ffffff' }}>
+          <Table size="small" sx={{ minWidth: 1180, tableLayout: 'fixed' }}>
+            <TableHead>
+              <TableRow>
+                <TableCell padding="checkbox" />
+                <TableCell sx={{ fontWeight: 900 }}>Bay / Location</TableCell>
+                <TableCell sx={{ fontWeight: 900 }}>Drive</TableCell>
+                <TableCell sx={{ fontWeight: 900, width: 120 }}>Capacity</TableCell>
+                <TableCell sx={{ fontWeight: 900, width: 130 }}>Protocol</TableCell>
+                <TableCell sx={{ fontWeight: 900, width: 190 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 900, width: 170 }}>Use</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {drives.map((item, index) => {
+                const resource = resourceOf(item);
+                const path = pathOf(item) || `drive-${index}`;
+                const selectable = driveSelectable(resource);
+                const assigned = volumeCountOf(resource) > 0;
+                return (
+                  <TableRow key={path} hover selected={selectedSet.has(path)}>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={selectedSet.has(path)}
+                        disabled={!selectable}
+                        onChange={() => toggleDrive(path)}
+                        inputProps={{ 'aria-label': `Select ${locationText(resource)}` }}
+                      />
+                    </TableCell>
+                    <TableCell>{locationText(resource)}</TableCell>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 900 }}>
+                        {textField(resource, ['Name', 'Model', 'Id'], `Drive ${index + 1}`)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {textField(resource, ['SerialNumber'], '-')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{formatCapacity(resource)}</TableCell>
+                    <TableCell>{textField(resource, ['Protocol', 'MediaType'])}</TableCell>
+                    <TableCell><HealthValue value={statusText(resource)} /></TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={assigned ? 'Assigned' : selectable ? 'Available' : 'Unavailable'}
+                        color={selectable ? 'success' : 'default'}
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {drives.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7}>
+                    <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                      No Redfish drives are available yet. Refresh inventory first.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        {planError && <Alert severity="warning">{planError}</Alert>}
+        {plan && (
+          <Stack spacing={1.5}>
+            <Alert severity={plan.eligible ? 'success' : 'warning'}>
+              {plan.eligible ? 'Plan is eligible for the next guarded apply step.' : 'Plan is not eligible yet.'} {plan.message}
+            </Alert>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Chip size="small" label={`${plan.raid_level} ${plan.purpose}`} />
+              <Chip size="small" label={`${plan.selected_drives.length} selected drives`} />
+              <Chip size="small" label={plan.bootable ? 'Bootable' : 'Not bootable'} />
+              <Chip size="small" label={plan.apply_supported ? 'Apply enabled' : 'Apply disabled'} />
+            </Stack>
+            <Stack spacing={0.75}>
+              {plan.checks.map((check) => (
+                <Stack key={check.name} direction="row" spacing={1} alignItems="center">
+                  <Chip size="small" color={check.passed ? 'success' : 'warning'} label={check.passed ? 'OK' : 'Check'} />
+                  <Typography color={check.passed ? 'text.primary' : 'warning.main'} sx={{ fontWeight: 800 }}>
+                    {check.message}
+                  </Typography>
+                </Stack>
+              ))}
+            </Stack>
+          </Stack>
+        )}
+      </Stack>
+    </CollapsiblePanel>
   );
 }
 
@@ -603,6 +800,8 @@ export function ServerDetailPage() {
           <DeviceInventorySummary inventory={latestInventory} />
         </Stack>
       </CollapsiblePanel>
+
+      <RaidConfigPanel server={server} inventory={latestInventory} />
 
       <CollapsiblePanel title="Raw Inventory" defaultExpanded={false}>
         <Grid container spacing={2}>

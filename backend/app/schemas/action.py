@@ -76,6 +76,32 @@ class IloLicenseActionRequest(BaseModel):
         return stripped or None
 
 
+class RaidPlanRequest(BaseModel):
+    raid_level: str = Field(default="RAID1", min_length=1, max_length=16)
+    purpose: str = Field(default="OS Boot", min_length=1, max_length=64)
+    volume_name: str = Field(default="os-boot", min_length=1, max_length=64)
+    selected_drive_paths: list[str] = Field(default_factory=list, min_length=1, max_length=32)
+    bootable: bool = True
+
+    @field_validator("raid_level", "purpose", "volume_name")
+    @classmethod
+    def strip_required_raid_plan_values(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be empty")
+        return stripped
+
+    @field_validator("selected_drive_paths")
+    @classmethod
+    def strip_drive_paths(cls, value: list[str]) -> list[str]:
+        paths = [item.strip() for item in value if item.strip()]
+        if len(paths) != len(set(paths)):
+            raise ValueError("Selected drives must be unique")
+        if not paths:
+            raise ValueError("At least one drive must be selected")
+        return paths
+
+
 class IloEnrollmentCreateResponse(BaseModel):
     token: str
     url: str

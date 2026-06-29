@@ -69,6 +69,7 @@ import {
   fetchRecentActions,
   fetchServers,
   fetchStats,
+  refreshServerInventory,
   updateServer,
 } from '../api/client';
 import { QrCode } from '../components/QrCode';
@@ -79,6 +80,8 @@ const emptyStats: DashboardStats = {
   online_servers: 0,
   offline_servers: 0,
 };
+const ACTIVE_TASK_REFRESH_MS = 4000;
+const IDLE_TASK_REFRESH_MS = 10000;
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -483,6 +486,8 @@ export function DashboardPage() {
   const [showNetworkAdminPassword, setShowNetworkAdminPassword] = useState(false);
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
+  const [refreshingInventoryId, setRefreshingInventoryId] = useState<number | null>(null);
+  const [inventoryRefreshMessage, setInventoryRefreshMessage] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [filterText, setFilterText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -517,10 +522,13 @@ export function DashboardPage() {
   const partiallyVisibleSelected = selectedVisibleIds.length > 0 && selectedVisibleIds.length < filteredServers.length;
   const serverById = new Map(servers.map((server) => [server.id, server]));
   const activeActionCount = actions.filter((action) => action.status === 'pending' || action.status === 'running').length;
+  const taskRefreshLabel = activeActionCount > 0 ? `${ACTIVE_TASK_REFRESH_MS / 1000}s` : `${IDLE_TASK_REFRESH_MS / 1000}s`;
+  const selectedServerCanRefreshInventory = Boolean(selectedServer?.bmc_ip && hasUsableActionCredential(selectedServer));
 
   async function load() {
     try {
       setError(null);
+      setInventoryRefreshMessage(null);
       const [statsData, serverData, actionData] = await Promise.all([fetchStats(), fetchServers(), fetchRecentActions()]);
       setStats(statsData);
       setServers(serverData);
@@ -533,6 +541,17 @@ export function DashboardPage() {
     }
   }
 
+  async function refreshTasks() {
+    const actionData = await fetchRecentActions();
+    setActions(actionData);
+    if (actionData.some((action) => action.status === 'pending' || action.status === 'running')) {
+      const [statsData, serverData] = await Promise.all([fetchStats(), fetchServers()]);
+      setStats(statsData);
+      setServers(serverData);
+      setSelectedIds((current) => current.filter((id) => serverData.some((server) => server.id === id)));
+    }
+  }
+
   useEffect(() => {
     load();
   }, []);
@@ -540,25 +559,18 @@ export function DashboardPage() {
   useEffect(() => {
     if (activeActionCount === 0) return undefined;
     const timer = window.setInterval(() => {
-      fetchRecentActions()
-        .then(setActions)
-        .catch(() => undefined);
-      fetchServers()
-        .then(setServers)
-        .catch(() => undefined);
-    }, 4000);
+      refreshTasks().catch(() => undefined);
+    }, ACTIVE_TASK_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [activeActionCount]);
 
   useEffect(() => {
-    if (actions.length === 0 || activeActionCount > 0) return undefined;
+    if (activeActionCount > 0) return undefined;
     const timer = window.setInterval(() => {
-      fetchRecentActions()
-        .then(setActions)
-        .catch(() => undefined);
-    }, 60000);
+      refreshTasks().catch(() => undefined);
+    }, IDLE_TASK_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [actions.length, activeActionCount]);
+  }, [activeActionCount]);
 
   function openMenu(event: MouseEvent<HTMLElement>, server: ServerSummary) {
     event.preventDefault();
@@ -771,6 +783,31 @@ export function DashboardPage() {
       setError('iLO license action could not be queued.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function refreshSelectedServerInventory() {
+    if (!selectedServer) return;
+    const server = selectedServer;
+    closeMenu();
+    if (!server.bmc_ip || !hasUsableActionCredential(server)) {
+      setInventoryRefreshMessage(null);
+      setError('Validated iLO credentials and a BMC IP are required before Redfish inventory refresh.');
+      return;
+    }
+
+    setError(null);
+    setInventoryRefreshMessage(`Refreshing Redfish inventory for ${server.hostname ?? server.serial_number}...`);
+    setRefreshingInventoryId(server.id);
+    try {
+      await refreshServerInventory(server.id);
+      await load();
+      setInventoryRefreshMessage(`Redfish inventory refreshed for ${server.hostname ?? server.serial_number}.`);
+    } catch {
+      setInventoryRefreshMessage(null);
+      setError('Redfish inventory refresh failed.');
+    } finally {
+      setRefreshingInventoryId(null);
     }
   }
 
@@ -1003,6 +1040,11 @@ export function DashboardPage() {
       {error && (
         <Alert severity="warning" sx={{ border: '1px solid #f2d6a2', bgcolor: '#fff8eb' }}>
           {error}
+        </Alert>
+      )}
+      {inventoryRefreshMessage && (
+        <Alert severity="info" sx={{ border: '1px solid #cfe0ef', bgcolor: '#f1f7fc' }}>
+          {inventoryRefreshMessage}
         </Alert>
       )}
 
@@ -1243,13 +1285,14 @@ export function DashboardPage() {
             {activeActionCount > 0 && (
               <Chip size="small" label={`${activeActionCount} active`} sx={{ bgcolor: '#fff8df', color: '#75611d', fontWeight: 900 }} />
             )}
+            <Chip size="small" label={`Auto ${taskRefreshLabel}`} sx={{ bgcolor: '#f3f5f5', color: '#62666f', fontWeight: 800 }} />
             <Box sx={{ flex: 1 }} />
             <Tooltip title="Refresh tasks" arrow>
               <IconButton
                 size="small"
                 onClick={(event) => {
                   event.stopPropagation();
-                  fetchRecentActions().then(setActions);
+                  refreshTasks().catch(() => undefined);
                 }}
               >
                 <RefreshIcon fontSize="small" />
@@ -1365,6 +1408,17 @@ export function DashboardPage() {
         <MenuItem onClick={openIloEnrollment}>
           <QrCodeScannerIcon fontSize="small" sx={{ mr: 1 }} />
           Scan iLO Tag
+        </MenuItem>
+        <MenuItem
+          onClick={refreshSelectedServerInventory}
+          disabled={!selectedServerCanRefreshInventory || refreshingInventoryId === selectedServer?.id}
+        >
+          {refreshingInventoryId === selectedServer?.id ? (
+            <CircularProgress size={18} sx={{ mr: 1 }} />
+          ) : (
+            <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
+          )}
+          {refreshingInventoryId === selectedServer?.id ? 'Refreshing Inventory...' : 'Refresh Redfish Inventory'}
         </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />

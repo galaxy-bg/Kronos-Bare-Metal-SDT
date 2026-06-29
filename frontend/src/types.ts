@@ -115,6 +115,38 @@ export type InventoryRecord = {
   created_at: string;
 };
 
+export type InventoryRefreshResult = {
+  status: string;
+  inventory_id: number;
+  inventory: Record<string, unknown>;
+};
+
+export type RaidPlanPayload = {
+  raid_level: string;
+  purpose: string;
+  volume_name: string;
+  selected_drive_paths: string[];
+  bootable: boolean;
+};
+
+export type RaidPlanResult = {
+  server_id: number;
+  serial_number: string;
+  raid_level: string;
+  purpose: string;
+  volume_name: string;
+  bootable: boolean;
+  selected_drive_paths: string[];
+  selected_drives: Array<Record<string, unknown>>;
+  missing_drive_paths: string[];
+  checks: Array<{ name: string; passed: boolean; message: string }>;
+  eligible: boolean;
+  apply_supported: boolean;
+  destructive: boolean;
+  message: string;
+  raid: Record<string, unknown>;
+};
+
 export type ServerDetail = ServerSummary & {
   inventories: InventoryRecord[];
 };
