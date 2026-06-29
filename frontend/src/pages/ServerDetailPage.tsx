@@ -848,9 +848,9 @@ export function ServerDetailPage() {
 
       <CollapsiblePanel title="Inventory Summary" defaultExpanded>
         <Stack spacing={2.5}>
-          <StorageRaidSummary server={server} inventory={latestInventory} />
-          <FirmwareInventorySummary inventory={latestInventory} />
           <DeviceInventorySummary inventory={latestInventory} />
+          <FirmwareInventorySummary inventory={latestInventory} />
+          <StorageRaidSummary server={server} inventory={latestInventory} />
         </Stack>
       </CollapsiblePanel>
 
