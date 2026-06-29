@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 from app.adapters.base import AdapterContext, BaseVendorAdapter
-from app.utils.redfish import RedfishError, redfish_get_json, redfish_patch_json
+from app.utils.redfish import RedfishError, redfish_get_json, redfish_patch_json, redfish_post_json
 
 
 class HpeIloAdapter(BaseVendorAdapter):
@@ -31,6 +31,10 @@ class HpeIloAdapter(BaseVendorAdapter):
     def _patch(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         base_url, username, password = self._require_connection()
         return redfish_patch_json(base_url, path, username, password, payload)
+
+    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        base_url, username, password = self._require_connection()
+        return redfish_post_json(base_url, path, username, password, payload)
 
     def detect(self) -> dict[str, Any]:
         root = self._get("/redfish/v1/")
@@ -121,8 +125,51 @@ class HpeIloAdapter(BaseVendorAdapter):
         }
 
     def set_raid_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        # TODO: RAID profile apply.
-        return {"vendor": self.vendor, "implemented": False, "message": "RAID apply is planned for Phase-2."}
+        storage_inventory = self.get_storage_inventory()
+        selected_drive_paths = [str(path) for path in config.get("selected_drive_paths", []) if str(path)]
+        if not selected_drive_paths:
+            raise RedfishError("No drive paths were provided for storage apply.")
+
+        disk_mode = str(config.get("disk_mode") or "RAID").upper()
+        raid_level = str(config.get("raid_level") or "RAID1").upper()
+        volume_name = self._volume_name(str(config.get("volume_name") or "kdx-volume"))
+
+        if disk_mode in {"NON_RAID", "NONRAID", "JBOD"} or raid_level == "NON_RAID":
+            operations = []
+            for index, drive_path in enumerate(selected_drive_paths, start=1):
+                collection_path = self._volume_collection_for_drive(storage_inventory, drive_path)
+                payload = self._volume_create_payload(
+                    self._volume_name(f"{volume_name}-{index}"),
+                    "None",
+                    [drive_path],
+                )
+                operations.append(
+                    {
+                        "disk_mode": "NON_RAID",
+                        "volume_collection": collection_path,
+                        "payload": payload,
+                        "result": self._post(collection_path, payload),
+                    }
+                )
+            return {
+                "vendor": self.vendor,
+                "implemented": True,
+                "disk_mode": "NON_RAID",
+                "operations": operations,
+                "message": "Non-RAID/JBOD volume create requests were submitted.",
+            }
+
+        collection_path = self._volume_collection_for_drive_set(storage_inventory, selected_drive_paths)
+        payload = self._volume_create_payload(volume_name, raid_level, selected_drive_paths)
+        return {
+            "vendor": self.vendor,
+            "implemented": True,
+            "disk_mode": "RAID",
+            "volume_collection": collection_path,
+            "payload": payload,
+            "result": self._post(collection_path, payload),
+            "message": f"{raid_level} volume create request was submitted.",
+        }
 
     def get_firmware_inventory(self) -> dict[str, Any]:
         # TODO: firmware update.
@@ -455,6 +502,46 @@ class HpeIloAdapter(BaseVendorAdapter):
             "volumes": volumes,
             "recommendations": recommendations,
         }
+
+    def _volume_name(self, value: str) -> str:
+        normalized = value.strip() or "kdx-volume"
+        return normalized[:15]
+
+    def _volume_create_payload(self, name: str, raid_type: str, drive_paths: list[str]) -> dict[str, Any]:
+        redfish_raid_type = "None" if raid_type in {"None", "NON_RAID", "JBOD"} else raid_type
+        return {
+            "Name": self._volume_name(name),
+            "RAIDType": redfish_raid_type,
+            "InitializeMethod": "Background",
+            "Links": {
+                "Drives": [{"@odata.id": path} for path in drive_paths],
+            },
+        }
+
+    def _volume_collection_for_drive(self, storage_inventory: dict[str, Any], drive_path: str) -> str:
+        for storage_member in storage_inventory.get("storage", []):
+            if not isinstance(storage_member, dict):
+                continue
+            drive_paths = {
+                str(nested.get("@odata.id"))
+                for item in storage_member.get("drives", [])
+                if isinstance(item, dict)
+                for nested in [item.get("resource") if isinstance(item.get("resource"), dict) else item]
+                if isinstance(nested, dict) and nested.get("@odata.id")
+            }
+            if drive_path not in drive_paths:
+                continue
+            resource = storage_member.get("resource") if isinstance(storage_member.get("resource"), dict) else {}
+            volumes = resource.get("Volumes") if isinstance(resource, dict) else None
+            if isinstance(volumes, dict) and volumes.get("@odata.id"):
+                return str(volumes["@odata.id"])
+        raise RedfishError(f"Drive {drive_path} is not linked to a writable Redfish Volumes collection.")
+
+    def _volume_collection_for_drive_set(self, storage_inventory: dict[str, Any], drive_paths: list[str]) -> str:
+        collections = {self._volume_collection_for_drive(storage_inventory, drive_path) for drive_path in drive_paths}
+        if len(collections) != 1:
+            raise RedfishError("Selected RAID drives must belong to the same Redfish storage controller.")
+        return next(iter(collections))
 
     def _health_value(self, payload: dict[str, Any]) -> str | None:
         status = payload.get("Status")

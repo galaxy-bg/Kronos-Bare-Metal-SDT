@@ -728,6 +728,48 @@ def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Sessi
     return action_to_read(action)
 
 
+@router.post("/actions/{action_id}/execute-storage-apply", response_model=ServerActionRead)
+def execute_storage_apply_action(action_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    action = db.get(ServerAction, action_id)
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
+    if action.action_type != "hpe_storage_apply_plan":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Action is not a storage apply plan.")
+    if action.status != "planned":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only planned storage apply actions can be executed.")
+
+    server = db.get(Server, action.server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    action.status = "running"
+    action.started_at = datetime.now(UTC)
+    db.commit()
+
+    adapter = AdapterService().build_for_server(server)
+    try:
+        raid_config = adapter.get_raid_config()
+        plan = build_raid_plan(server, RaidPlanRequest(**action.payload_json), raid_config)
+        if not plan.get("eligible"):
+            raise RedfishError("Storage plan is no longer eligible. Refresh inventory and create a new plan.")
+        result = adapter.set_raid_config(action.payload_json)
+    except Exception as exc:
+        action.status = "failed"
+        action.error_message = str(exc)
+        action.result_json = {"message": "Storage apply failed before or during Redfish execution."}
+        action.completed_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(action)
+        return action_to_read(action)
+
+    action.status = "succeeded"
+    action.result_json = result
+    action.completed_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
+
+
 @router.post("/{server_id}/deregister", response_model=ServerRead)
 def deregister_server(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     server = db.get(Server, server_id)

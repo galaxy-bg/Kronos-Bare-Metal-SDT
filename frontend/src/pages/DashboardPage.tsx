@@ -67,6 +67,7 @@ import {
   createIloUserAction,
   deleteServer,
   deregisterServer,
+  executeStorageApplyAction,
   fetchRecentActions,
   fetchServers,
   fetchStats,
@@ -495,6 +496,7 @@ export function DashboardPage() {
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
   const [refreshingInventoryId, setRefreshingInventoryId] = useState<number | null>(null);
+  const [executingActionId, setExecutingActionId] = useState<number | null>(null);
   const [inventoryRefreshMessage, setInventoryRefreshMessage] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [filterText, setFilterText] = useState('');
@@ -557,6 +559,20 @@ export function DashboardPage() {
       setStats(statsData);
       setServers(serverData);
       setSelectedIds((current) => current.filter((id) => serverData.some((server) => server.id === id)));
+    }
+  }
+
+  async function executeStorageApply(action: ServerAction) {
+    setExecutingActionId(action.id);
+    setError(null);
+    try {
+      const updated = await executeStorageApplyAction(action.id);
+      setActions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await refreshTasks();
+    } catch {
+      setError('Storage apply action could not be executed.');
+    } finally {
+      setExecutingActionId(null);
     }
   }
 
@@ -1325,6 +1341,7 @@ export function DashboardPage() {
                   <TableCell>Started</TableCell>
                   <TableCell>Completed</TableCell>
                   <TableCell>Result</TableCell>
+                  <TableCell align="right">Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1378,12 +1395,25 @@ export function DashboardPage() {
                           {resultText}
                         </Typography>
                       </TableCell>
+                      <TableCell align="right">
+                        {action.action_type === 'hpe_storage_apply_plan' && action.status === 'planned' && (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="warning"
+                            onClick={() => executeStorageApply(action)}
+                            disabled={executingActionId === action.id}
+                          >
+                            {executingActionId === action.id ? 'Running...' : 'Execute'}
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
                 {actions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={8}>
                       <Typography sx={{ py: 3, textAlign: 'center' }} color="text.secondary">
                         No queued actions yet.
                       </Typography>

@@ -68,3 +68,42 @@ def redfish_patch_json(
         return json.loads(body)
     except json.JSONDecodeError:
         return {"status": "accepted", "raw": body}
+
+
+def redfish_post_json(
+    base_url: str,
+    path: str,
+    username: str,
+    password: str,
+    payload: dict[str, Any],
+    timeout: int = 30,
+    verify_tls: bool = False,
+) -> dict[str, Any]:
+    url = base_url.rstrip("/") + "/" + path.lstrip("/")
+    headers = {
+        "Accept": "application/json",
+        "Authorization": basic_auth_header(username, password),
+        "Content-Type": "application/json",
+    }
+    request = Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+    context = None if verify_tls else ssl._create_unverified_context()
+    try:
+        with urlopen(request, timeout=timeout, context=context) as response:
+            body = response.read().decode("utf-8")
+            location = response.headers.get("Location")
+            status = response.status
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise RedfishError(str(exc)) from exc
+    if not body:
+        result: dict[str, Any] = {"status": "accepted", "http_status": status}
+        if location:
+            result["location"] = location
+        return result
+    try:
+        result = json.loads(body)
+    except json.JSONDecodeError:
+        result = {"status": "accepted", "raw": body}
+    if location:
+        result.setdefault("location", location)
+    result.setdefault("http_status", status)
+    return result
