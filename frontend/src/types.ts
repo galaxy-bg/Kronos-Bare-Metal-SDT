@@ -122,6 +122,7 @@ export type InventoryRefreshResult = {
 };
 
 export type RaidPlanPayload = {
+  disk_mode: string;
   raid_level: string;
   purpose: string;
   volume_name: string;
@@ -133,6 +134,7 @@ export type RaidPlanPayload = {
 export type RaidPlanResult = {
   server_id: number;
   serial_number: string;
+  disk_mode: string;
   raid_level: string;
   purpose: string;
   volume_name: string;

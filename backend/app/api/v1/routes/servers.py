@@ -228,8 +228,12 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
     drive_items = raid_summary.get("drives")
     drives = [item for item in drive_items if isinstance(item, dict)] if isinstance(drive_items, list) else []
     drive_by_path = {path: drive for drive in drives if (path := raid_drive_path(drive))}
-    raid_level = payload.raid_level.upper()
-    minimum_drives, exact_drives = raid_plan_requirement(raid_level)
+    disk_mode = payload.disk_mode.upper().replace("-", "_")
+    if disk_mode in {"JBOD", "NONRAID", "NON_RAID"}:
+        disk_mode = "NON_RAID"
+    if disk_mode not in {"RAID", "NON_RAID"}:
+        disk_mode = "RAID"
+    raid_level = "NON_RAID" if disk_mode == "NON_RAID" else payload.raid_level.upper()
     selected = [drive_by_path[path] for path in payload.selected_drive_paths if path in drive_by_path]
     missing_paths = [path for path in payload.selected_drive_paths if path not in drive_by_path]
     selected_summaries = [raid_drive_summary(drive) for drive in selected]
@@ -240,13 +244,17 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         checks.append({"name": name, "passed": passed, "message": message})
 
     selected_count = len(selected)
-    count_ok = selected_count >= minimum_drives and (exact_drives is None or selected_count == exact_drives)
-    expected_count = f"exactly {exact_drives}" if exact_drives is not None else f"at least {minimum_drives}"
-    add_check(
-        "drive-count",
-        count_ok,
-        f"{raid_level} requires {expected_count} selected drive{'s' if (exact_drives or minimum_drives) != 1 else ''}.",
-    )
+    if disk_mode == "NON_RAID":
+        add_check("drive-count", selected_count >= 1, "Non-RAID/JBOD mode requires at least 1 selected drive.")
+    else:
+        minimum_drives, exact_drives = raid_plan_requirement(raid_level)
+        count_ok = selected_count >= minimum_drives and (exact_drives is None or selected_count == exact_drives)
+        expected_count = f"exactly {exact_drives}" if exact_drives is not None else f"at least {minimum_drives}"
+        add_check(
+            "drive-count",
+            count_ok,
+            f"{raid_level} requires {expected_count} selected drive{'s' if (exact_drives or minimum_drives) != 1 else ''}.",
+        )
     add_check("drive-exists", not missing_paths, "All selected drives must be visible in the current Redfish RAID inventory.")
 
     absent = [drive for drive in selected_summaries if str(drive.get("state") or "").lower() == "absent"]
@@ -262,24 +270,25 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
     assigned = [drive for drive in selected_summaries if int(drive.get("volume_count") or 0) > 0]
     add_check("drive-unassigned", not assigned, "Selected drives must not already belong to a Redfish volume.")
 
-    if raid_level == "RAID10":
+    if disk_mode == "RAID" and raid_level == "RAID10":
         add_check("raid10-even-count", selected_count % 2 == 0, "RAID10 requires an even number of selected drives.")
 
     add_check(
-        "jbod-initialize",
+        "disk-mode",
         True,
-        "Selected drives will be prepared as JBOD before RAID apply." if payload.initialize_as_jbod else "Selected drives will keep their current controller state before RAID apply.",
+        "Selected drives will be exposed as Non-RAID/JBOD disks." if disk_mode == "NON_RAID" else "Selected drives will be used to create a RAID volume.",
     )
 
     eligible = all(check["passed"] for check in checks)
     return {
         "server_id": server.id,
         "serial_number": server.serial_number,
+        "disk_mode": disk_mode,
         "raid_level": raid_level,
         "purpose": payload.purpose,
         "volume_name": payload.volume_name,
         "bootable": payload.bootable,
-        "initialize_as_jbod": payload.initialize_as_jbod,
+        "initialize_as_jbod": disk_mode == "NON_RAID",
         "selected_drive_paths": payload.selected_drive_paths,
         "selected_drives": selected_summaries,
         "missing_drive_paths": missing_paths,
@@ -287,7 +296,7 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         "eligible": eligible,
         "apply_supported": False,
         "destructive": True,
-        "message": "Preview only. No RAID changes were applied. Next step will require explicit destructive confirmation.",
+        "message": "Preview only. No storage changes were applied. Next step will require explicit destructive confirmation.",
         "raid": raid_summary,
     }
 

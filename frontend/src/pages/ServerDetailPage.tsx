@@ -376,11 +376,11 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
 function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventory: Record<string, unknown> }) {
   const raid = asRecord(inventory.raid);
   const drives = asArray(raid.drives);
+  const [diskMode, setDiskMode] = useState<'RAID' | 'NON_RAID'>('RAID');
   const [raidLevel, setRaidLevel] = useState('RAID1');
   const [purpose, setPurpose] = useState('OS Boot');
   const [volumeName, setVolumeName] = useState('os-boot');
   const [bootable, setBootable] = useState(true);
-  const [initializeAsJbod, setInitializeAsJbod] = useState(true);
   const [selectedDrivePaths, setSelectedDrivePaths] = useState<string[]>([]);
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<RaidPlanResult | null>(null);
@@ -407,12 +407,13 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
     setPlanError(null);
     try {
       const result = await planRaid(server.id, {
-        raid_level: raidLevel,
+        disk_mode: diskMode,
+        raid_level: diskMode === 'RAID' ? raidLevel : 'NON_RAID',
         purpose,
-        volume_name: volumeName,
+        volume_name: diskMode === 'RAID' ? volumeName : 'non-raid',
         selected_drive_paths: selectedDrivePaths,
         bootable,
-        initialize_as_jbod: initializeAsJbod,
+        initialize_as_jbod: diskMode === 'NON_RAID',
       });
       setPlan(result);
     } catch {
@@ -439,33 +440,47 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
           </Alert>
         )}
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+          <TextField
+            select
+            label="Disk Mode"
+            value={diskMode}
+            onChange={(event) => {
+              setPlan(null);
+              setDiskMode(event.target.value as 'RAID' | 'NON_RAID');
+            }}
+            size="small"
+            sx={{ minWidth: 240 }}
+          >
+            <MenuItem value="RAID">Create RAID Volume</MenuItem>
+            <MenuItem value="NON_RAID">Expose as Non-RAID / JBOD</MenuItem>
+          </TextField>
           <TextField select label="Purpose" value={purpose} onChange={(event) => setPurpose(event.target.value)} size="small" sx={{ minWidth: 180 }}>
             <MenuItem value="OS Boot">OS Boot</MenuItem>
             <MenuItem value="Data">Data</MenuItem>
             <MenuItem value="Custom">Custom</MenuItem>
           </TextField>
-          <TextField select label="RAID Level" value={raidLevel} onChange={(event) => setRaidLevel(event.target.value)} size="small" sx={{ minWidth: 160 }}>
-            <MenuItem value="RAID1">RAID1</MenuItem>
-            <MenuItem value="RAID5">RAID5</MenuItem>
-            <MenuItem value="RAID6">RAID6</MenuItem>
-            <MenuItem value="RAID10">RAID10</MenuItem>
-          </TextField>
-          <TextField label="Volume Name" value={volumeName} onChange={(event) => setVolumeName(event.target.value)} size="small" sx={{ minWidth: 220 }} />
+          {diskMode === 'RAID' && (
+            <>
+              <TextField select label="RAID Level" value={raidLevel} onChange={(event) => setRaidLevel(event.target.value)} size="small" sx={{ minWidth: 160 }}>
+                <MenuItem value="RAID1">RAID1</MenuItem>
+                <MenuItem value="RAID5">RAID5</MenuItem>
+                <MenuItem value="RAID6">RAID6</MenuItem>
+                <MenuItem value="RAID10">RAID10</MenuItem>
+              </TextField>
+              <TextField label="Volume Name" value={volumeName} onChange={(event) => setVolumeName(event.target.value)} size="small" sx={{ minWidth: 220 }} />
+            </>
+          )}
           <FormControlLabel
             control={<Checkbox checked={bootable} onChange={(event) => setBootable(event.target.checked)} />}
             label="Bootable"
-          />
-          <FormControlLabel
-            control={<Checkbox checked={initializeAsJbod} onChange={(event) => setInitializeAsJbod(event.target.checked)} />}
-            label="Default JBOD"
           />
           <Box sx={{ flex: 1 }} />
           <Button
             variant="contained"
             onClick={previewPlan}
-            disabled={!hasRedfishAccess || planning || selectedDrivePaths.length === 0 || !volumeName.trim()}
+            disabled={!hasRedfishAccess || planning || selectedDrivePaths.length === 0 || (diskMode === 'RAID' && !volumeName.trim())}
           >
-            {planning ? 'Checking...' : 'Check Plan'}
+            {planning ? 'Checking...' : diskMode === 'RAID' ? 'Check RAID Plan' : 'Check Non-RAID Plan'}
           </Button>
         </Stack>
 
@@ -541,10 +556,10 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
               {plan.eligible ? 'Plan is eligible for the next guarded apply step.' : 'Plan is not eligible yet.'} {plan.message}
             </Alert>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip size="small" label={`${plan.raid_level} ${plan.purpose}`} />
+              <Chip size="small" label={plan.disk_mode === 'NON_RAID' ? `Non-RAID / JBOD ${plan.purpose}` : `${plan.raid_level} ${plan.purpose}`} />
               <Chip size="small" label={`${plan.selected_drives.length} selected drives`} />
               <Chip size="small" label={plan.bootable ? 'Bootable' : 'Not bootable'} />
-              <Chip size="small" label={plan.initialize_as_jbod ? 'Default JBOD' : 'Keep drive state'} />
+              <Chip size="small" label={plan.disk_mode === 'NON_RAID' ? 'Expose to OS' : 'Create volume'} />
               <Chip size="small" label={plan.apply_supported ? 'Apply enabled' : 'Apply disabled'} />
             </Stack>
             <Stack spacing={0.75}>

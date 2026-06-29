@@ -77,6 +77,7 @@ class IloLicenseActionRequest(BaseModel):
 
 
 class RaidPlanRequest(BaseModel):
+    disk_mode: str = Field(default="RAID", min_length=1, max_length=16)
     raid_level: str = Field(default="RAID1", min_length=1, max_length=16)
     purpose: str = Field(default="OS Boot", min_length=1, max_length=64)
     volume_name: str = Field(default="os-boot", min_length=1, max_length=64)
@@ -84,7 +85,7 @@ class RaidPlanRequest(BaseModel):
     bootable: bool = True
     initialize_as_jbod: bool = True
 
-    @field_validator("raid_level", "purpose", "volume_name")
+    @field_validator("disk_mode", "raid_level", "purpose", "volume_name")
     @classmethod
     def strip_required_raid_plan_values(cls, value: str) -> str:
         stripped = value.strip()
