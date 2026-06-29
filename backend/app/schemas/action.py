@@ -82,6 +82,7 @@ class RaidPlanRequest(BaseModel):
     volume_name: str = Field(default="os-boot", min_length=1, max_length=64)
     selected_drive_paths: list[str] = Field(default_factory=list, min_length=1, max_length=32)
     bootable: bool = True
+    initialize_as_jbod: bool = True
 
     @field_validator("raid_level", "purpose", "volume_name")
     @classmethod

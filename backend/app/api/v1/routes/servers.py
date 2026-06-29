@@ -265,6 +265,12 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
     if raid_level == "RAID10":
         add_check("raid10-even-count", selected_count % 2 == 0, "RAID10 requires an even number of selected drives.")
 
+    add_check(
+        "jbod-initialize",
+        True,
+        "Selected drives will be prepared as JBOD before RAID apply." if payload.initialize_as_jbod else "Selected drives will keep their current controller state before RAID apply.",
+    )
+
     eligible = all(check["passed"] for check in checks)
     return {
         "server_id": server.id,
@@ -273,6 +279,7 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         "purpose": payload.purpose,
         "volume_name": payload.volume_name,
         "bootable": payload.bootable,
+        "initialize_as_jbod": payload.initialize_as_jbod,
         "selected_drive_paths": payload.selected_drive_paths,
         "selected_drives": selected_summaries,
         "missing_drive_paths": missing_paths,

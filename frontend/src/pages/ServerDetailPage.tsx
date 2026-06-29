@@ -380,6 +380,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
   const [purpose, setPurpose] = useState('OS Boot');
   const [volumeName, setVolumeName] = useState('os-boot');
   const [bootable, setBootable] = useState(true);
+  const [initializeAsJbod, setInitializeAsJbod] = useState(true);
   const [selectedDrivePaths, setSelectedDrivePaths] = useState<string[]>([]);
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<RaidPlanResult | null>(null);
@@ -411,6 +412,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
         volume_name: volumeName,
         selected_drive_paths: selectedDrivePaths,
         bootable,
+        initialize_as_jbod: initializeAsJbod,
       });
       setPlan(result);
     } catch {
@@ -452,6 +454,10 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
           <FormControlLabel
             control={<Checkbox checked={bootable} onChange={(event) => setBootable(event.target.checked)} />}
             label="Bootable"
+          />
+          <FormControlLabel
+            control={<Checkbox checked={initializeAsJbod} onChange={(event) => setInitializeAsJbod(event.target.checked)} />}
+            label="Default JBOD"
           />
           <Box sx={{ flex: 1 }} />
           <Button
@@ -538,6 +544,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
               <Chip size="small" label={`${plan.raid_level} ${plan.purpose}`} />
               <Chip size="small" label={`${plan.selected_drives.length} selected drives`} />
               <Chip size="small" label={plan.bootable ? 'Bootable' : 'Not bootable'} />
+              <Chip size="small" label={plan.initialize_as_jbod ? 'Default JBOD' : 'Keep drive state'} />
               <Chip size="small" label={plan.apply_supported ? 'Apply enabled' : 'Apply disabled'} />
             </Stack>
             <Stack spacing={0.75}>
