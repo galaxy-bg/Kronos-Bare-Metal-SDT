@@ -53,6 +53,7 @@ import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import SettingsEthernetIcon from '@mui/icons-material/SettingsEthernet';
+import StorageIcon from '@mui/icons-material/Storage';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -1419,6 +1420,15 @@ export function DashboardPage() {
             <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
           )}
           {refreshingInventoryId === selectedServer?.id ? 'Refreshing Inventory...' : 'Refresh Redfish Inventory'}
+        </MenuItem>
+        <MenuItem
+          component={RouterLink}
+          to={selectedServer ? `/servers/${selectedServer.id}#raid-config` : '/'}
+          onClick={closeMenu}
+          disabled={!selectedServer}
+        >
+          <StorageIcon fontSize="small" sx={{ mr: 1 }} />
+          RAID Config
         </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />

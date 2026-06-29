@@ -30,7 +30,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
 import { fetchServer, planRaid } from '../api/client';
 import type { RaidPlanResult, ServerDetail } from '../types';
 
@@ -414,7 +414,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
   }
 
   return (
-    <CollapsiblePanel title="RAID Config" defaultExpanded>
+    <CollapsiblePanel title="RAID Config" defaultExpanded panelId="raid-config">
       <Stack spacing={2}>
         <Alert severity="warning" sx={{ border: '1px solid #f2d6a2', bgcolor: '#fff8eb' }}>
           Preview only. No RAID changes are applied from this screen.
@@ -649,16 +649,19 @@ function ReadableSection({ title, empty, emptyText, children }: { title: string;
 function CollapsiblePanel({
   title,
   defaultExpanded,
+  panelId,
   children,
 }: {
   title: string;
   defaultExpanded: boolean;
+  panelId?: string;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <Accordion
+      id={panelId}
       expanded={expanded}
       onChange={(_, nextExpanded) => setExpanded(nextExpanded)}
       disableGutters
@@ -684,6 +687,7 @@ function CollapsiblePanel({
 
 export function ServerDetailPage() {
   const { serverId } = useParams();
+  const location = useLocation();
   const [server, setServer] = useState<ServerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -707,6 +711,11 @@ export function ServerDetailPage() {
     () => server?.latest_inventory_json ?? server?.inventories[0]?.inventory_json ?? {},
     [server],
   );
+
+  useEffect(() => {
+    if (!server || location.hash !== '#raid-config') return;
+    window.setTimeout(() => document.getElementById('raid-config')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }, [server, location.hash]);
 
   if (loading) {
     return (
