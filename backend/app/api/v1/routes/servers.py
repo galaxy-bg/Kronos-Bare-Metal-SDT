@@ -254,11 +254,23 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
     selected = [drive_by_path[path] for path in payload.selected_drive_paths if path in drive_by_path]
     missing_paths = [path for path in payload.selected_drive_paths if path not in drive_by_path]
     selected_summaries = [raid_drive_summary(drive) for drive in selected]
+    selected_paths = {path for path in payload.selected_drive_paths}
+    remaining_summaries = [
+        raid_drive_summary(drive)
+        for path, drive in drive_by_path.items()
+        if path not in selected_paths
+    ]
 
     checks: list[dict[str, Any]] = []
+    warnings: list[dict[str, str]] = []
 
     def add_check(name: str, passed: bool, message: str) -> None:
         checks.append({"name": name, "passed": passed, "message": message})
+
+    def drive_is_jbod_candidate(drive: dict[str, Any]) -> bool:
+        state = str(drive.get("state") or "").lower()
+        health = str(drive.get("health") or "").lower()
+        return state != "absent" and health in {"ok", "healthy"} and int(drive.get("volume_count") or 0) == 0
 
     selected_count = len(selected)
     if disk_mode == "NON_RAID":
@@ -303,6 +315,22 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         "Selected drives will be exposed as Non-RAID/JBOD disks." if disk_mode == "NON_RAID" else "Selected drives will be used to create a RAID volume.",
     )
 
+    jbod_candidate_drives = [
+        drive
+        for drive in remaining_summaries
+        if drive_is_jbod_candidate(drive)
+    ] if disk_mode == "RAID" and payload.auto_jbod_remaining else []
+    if disk_mode == "RAID" and payload.auto_jbod_remaining:
+        warnings.append(
+            {
+                "name": "auto-jbod-remaining",
+                "message": (
+                    f"{len(jbod_candidate_drives)} remaining drive(s) are marked as JBOD candidates. "
+                    "Current HPE MR Redfish apply creates the RAID volume only; Make JBOD automation is pending vendor action discovery."
+                ),
+            }
+        )
+
     eligible = all(check["passed"] for check in checks)
     return {
         "server_id": server.id,
@@ -313,10 +341,13 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         "volume_name": payload.volume_name,
         "bootable": payload.bootable,
         "initialize_as_jbod": disk_mode == "NON_RAID",
+        "auto_jbod_remaining": disk_mode == "RAID" and payload.auto_jbod_remaining,
         "selected_drive_paths": payload.selected_drive_paths,
         "selected_drives": selected_summaries,
+        "jbod_candidate_drives": jbod_candidate_drives,
         "missing_drive_paths": missing_paths,
         "checks": checks,
+        "warnings": warnings,
         "eligible": eligible,
         "apply_supported": bool(raid_summary.get("apply_supported")),
         "destructive": True,
@@ -746,8 +777,11 @@ def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Sessi
             "purpose": plan["purpose"],
             "volume_name": plan["volume_name"],
             "bootable": plan["bootable"],
+            "initialize_as_jbod": plan["initialize_as_jbod"],
+            "auto_jbod_remaining": plan["auto_jbod_remaining"],
             "selected_drive_paths": plan["selected_drive_paths"],
             "selected_drives": plan["selected_drives"],
+            "jbod_candidate_drives": plan["jbod_candidate_drives"],
             "destructive": True,
             "executor": "not_enabled",
             "auth": {
@@ -758,6 +792,7 @@ def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Sessi
         result_json={
             "message": "Storage apply request staged. Executor is not enabled yet; no storage changes were applied.",
             "plan_checks": plan["checks"],
+            "plan_warnings": plan["warnings"],
         },
     )
     db.add(action)

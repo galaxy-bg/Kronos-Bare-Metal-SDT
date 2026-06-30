@@ -468,6 +468,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
   const [purpose, setPurpose] = useState('OS Boot');
   const [volumeName, setVolumeName] = useState('os-boot');
   const [bootable, setBootable] = useState(true);
+  const [autoJbodRemaining, setAutoJbodRemaining] = useState(true);
   const [selectedDrivePaths, setSelectedDrivePaths] = useState<string[]>([]);
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<RaidPlanResult | null>(null);
@@ -479,6 +480,12 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
 
   const selectedSet = new Set(selectedDrivePaths);
   const hasRedfishAccess = Boolean(server.bmc_ip && server.management_config_json?.credential?.verified);
+  const jbodCandidatePaths = new Set(
+    drives
+      .map((item, index) => ({ item, path: pathOf(item) || `drive-${index}` }))
+      .filter(({ item, path }) => autoJbodRemaining && diskMode === 'RAID' && !selectedSet.has(path) && driveSelectable(resourceOf(item)))
+      .map(({ path }) => path),
+  );
 
   function driveSelectable(resource: Record<string, unknown>) {
     const status = asRecord(resource.Status);
@@ -510,6 +517,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
         selected_drive_paths: selectedDrivePaths,
         bootable,
         initialize_as_jbod: diskMode === 'NON_RAID',
+        auto_jbod_remaining: diskMode === 'RAID' && autoJbodRemaining,
       });
       setPlan(result);
     } catch {
@@ -532,6 +540,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
         selected_drive_paths: selectedDrivePaths,
         bootable,
         initialize_as_jbod: diskMode === 'NON_RAID',
+        auto_jbod_remaining: diskMode === 'RAID' && autoJbodRemaining,
         confirmation: applyConfirmation,
       });
       setApplyMessage(`Storage apply request staged as task #${action.id}.`);
@@ -597,6 +606,22 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
             control={<Checkbox checked={bootable} onChange={(event) => setBootable(event.target.checked)} />}
             label="Bootable"
           />
+          {diskMode === 'RAID' && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={autoJbodRemaining}
+                  onChange={(event) => {
+                    setPlan(null);
+                    setApplyMessage(null);
+                    setApplyError(null);
+                    setAutoJbodRemaining(event.target.checked);
+                  }}
+                />
+              }
+              label="Auto JBOD remaining"
+            />
+          )}
           <Box sx={{ flex: 1 }} />
           <Button
             variant="contained"
@@ -626,12 +651,14 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
                 const path = pathOf(item) || `drive-${index}`;
                 const selectable = driveSelectable(resource);
                 const assigned = volumeCountOf(resource) > 0;
+                const selectedForRaid = selectedSet.has(path);
+                const jbodCandidate = jbodCandidatePaths.has(path);
                 return (
-                  <TableRow key={path} hover selected={selectedSet.has(path)}>
+                  <TableRow key={path} hover selected={selectedForRaid || jbodCandidate}>
                     <TableCell padding="checkbox">
                       <Checkbox
                         size="small"
-                        checked={selectedSet.has(path)}
+                        checked={selectedForRaid}
                         disabled={!selectable}
                         onChange={() => toggleDrive(path)}
                         inputProps={{ 'aria-label': `Select ${locationText(resource)}` }}
@@ -652,8 +679,8 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
                     <TableCell>
                       <Chip
                         size="small"
-                        label={assigned ? 'Assigned' : selectable ? 'Available' : 'Unavailable'}
-                        color={selectable ? 'success' : 'default'}
+                        label={assigned ? 'Assigned' : selectedForRaid ? 'RAID member' : jbodCandidate ? 'JBOD candidate' : selectable ? 'Available' : 'Unavailable'}
+                        color={selectedForRaid ? 'primary' : jbodCandidate || selectable ? 'success' : 'default'}
                       />
                     </TableCell>
                   </TableRow>
@@ -681,10 +708,16 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Chip size="small" label={plan.disk_mode === 'NON_RAID' ? `Non-RAID / JBOD ${plan.purpose}` : `${plan.raid_level} ${plan.purpose}`} />
               <Chip size="small" label={`${plan.selected_drives.length} selected drives`} />
+              {plan.auto_jbod_remaining && <Chip size="small" label={`${plan.jbod_candidate_drives.length} JBOD candidates`} />}
               <Chip size="small" label={plan.bootable ? 'Bootable' : 'Not bootable'} />
               <Chip size="small" label={plan.disk_mode === 'NON_RAID' ? 'Expose to OS' : 'Create volume'} />
               <Chip size="small" label={plan.apply_supported ? 'Apply enabled' : 'Apply disabled'} />
             </Stack>
+            {plan.warnings.map((warning) => (
+              <Alert key={warning.name} severity="info">
+                {warning.message}
+              </Alert>
+            ))}
             <Stack spacing={0.75}>
               {plan.checks.map((check) => (
                 <Stack key={check.name} direction="row" spacing={1} alignItems="center">

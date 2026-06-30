@@ -147,10 +147,17 @@ class HpeIloAdapter(BaseVendorAdapter):
             "vendor": self.vendor,
             "implemented": True,
             "disk_mode": "RAID",
+            "auto_jbod_remaining": bool(config.get("auto_jbod_remaining")),
+            "auto_jbod_executed": False,
             "volume_collection": collection_path,
             "payload": payload,
             "result": self._post(collection_path, payload),
-            "message": f"{raid_level} volume create request was submitted.",
+            "message": (
+                f"{raid_level} volume create request was submitted. "
+                "Auto JBOD remaining drives is tracked as a plan policy and is not executed by this Redfish path yet."
+                if config.get("auto_jbod_remaining")
+                else f"{raid_level} volume create request was submitted."
+            ),
         }
 
     def clear_raid_config(self, storage_path: str | None = None) -> dict[str, Any]:

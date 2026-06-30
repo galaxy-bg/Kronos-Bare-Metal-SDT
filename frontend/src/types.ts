@@ -129,6 +129,7 @@ export type RaidPlanPayload = {
   selected_drive_paths: string[];
   bootable: boolean;
   initialize_as_jbod: boolean;
+  auto_jbod_remaining: boolean;
 };
 
 export type RaidApplyPayload = RaidPlanPayload & {
@@ -154,10 +155,13 @@ export type RaidPlanResult = {
   volume_name: string;
   bootable: boolean;
   initialize_as_jbod: boolean;
+  auto_jbod_remaining: boolean;
   selected_drive_paths: string[];
   selected_drives: Array<Record<string, unknown>>;
+  jbod_candidate_drives: Array<Record<string, unknown>>;
   missing_drive_paths: string[];
   checks: Array<{ name: string; passed: boolean; message: string }>;
+  warnings: Array<{ name: string; message: string }>;
   eligible: boolean;
   apply_supported: boolean;
   destructive: boolean;
