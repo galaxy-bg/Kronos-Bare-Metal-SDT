@@ -88,7 +88,7 @@ def redfish_post_json(
     username: str,
     password: str,
     payload: dict[str, Any],
-    timeout: int = 30,
+    timeout: int = 120,
     verify_tls: bool = False,
 ) -> dict[str, Any]:
     url = base_url.rstrip("/") + "/" + path.lstrip("/")
@@ -126,7 +126,7 @@ def redfish_delete_json(
     path: str,
     username: str,
     password: str,
-    timeout: int = 30,
+    timeout: int = 120,
     verify_tls: bool = False,
 ) -> dict[str, Any]:
     url = base_url.rstrip("/") + "/" + path.lstrip("/")
