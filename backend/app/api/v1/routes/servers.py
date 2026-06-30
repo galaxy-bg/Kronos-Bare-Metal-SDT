@@ -37,6 +37,7 @@ from app.utils.dmi import normalize_vendor
 router = APIRouter()
 OFFLINE_AFTER = timedelta(minutes=5)
 DEFAULT_COMPLETED_ACTION_VISIBLE_MINUTES = 10
+DEFAULT_RUNNING_ACTION_TIMEOUT_MINUTES = 10
 ENROLLMENT_TOKEN_TTL = timedelta(minutes=15)
 ENROLLMENT_SECRET = os.environ.get("KDX_ENROLLMENT_SECRET") or secrets.token_urlsafe(32)
 DEFAULT_MANAGED_ILO_USER = os.environ.get("KDX_DEFAULT_ILO_USER", "hpadmin")
@@ -475,11 +476,28 @@ def bulk_delete_servers(payload: BulkDeleteRequest, db: Session = Depends(get_db
 def recent_server_actions(
     limit: int = 50,
     completed_visible_minutes: int = DEFAULT_COMPLETED_ACTION_VISIBLE_MINUTES,
+    running_timeout_minutes: int = DEFAULT_RUNNING_ACTION_TIMEOUT_MINUTES,
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     bounded_limit = min(max(limit, 1), 200)
     visible_for = timedelta(minutes=min(max(completed_visible_minutes, 1), 1440))
-    completed_cutoff = datetime.now(UTC) - visible_for
+    timeout_for = timedelta(minutes=min(max(running_timeout_minutes, 1), 1440))
+    now = datetime.now(UTC)
+    timeout_cutoff = now - timeout_for
+    stale_actions = db.scalars(
+        select(ServerAction)
+        .where(ServerAction.status == "running", ServerAction.started_at.is_not(None), ServerAction.started_at < timeout_cutoff)
+        .limit(100)
+    ).all()
+    for action in stale_actions:
+        action.status = "failed"
+        action.completed_at = now
+        action.error_message = f"Task timed out after {int(timeout_for.total_seconds() // 60)} minutes."
+        action.result_json = {"message": "Task exceeded the running timeout and was marked failed."}
+    if stale_actions:
+        db.commit()
+
+    completed_cutoff = now - visible_for
     actions = db.scalars(
         select(ServerAction)
         .where(

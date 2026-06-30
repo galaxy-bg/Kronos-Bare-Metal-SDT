@@ -38,9 +38,9 @@ export async function fetchServers(): Promise<ServerSummary[]> {
   return response.data;
 }
 
-export async function fetchRecentActions(limit = 50, completedVisibleMinutes = 10): Promise<ServerAction[]> {
+export async function fetchRecentActions(limit = 50, completedVisibleMinutes = 10, runningTimeoutMinutes = 10): Promise<ServerAction[]> {
   const response = await api.get<ServerAction[]>('/api/v1/servers/actions/recent', {
-    params: { limit, completed_visible_minutes: completedVisibleMinutes },
+    params: { limit, completed_visible_minutes: completedVisibleMinutes, running_timeout_minutes: runningTimeoutMinutes },
   });
   return response.data;
 }

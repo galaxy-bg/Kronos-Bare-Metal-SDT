@@ -84,6 +84,7 @@ const emptyStats: DashboardStats = {
 };
 const ACTIVE_TASK_REFRESH_MS = 4000;
 const IDLE_TASK_REFRESH_MS = 10000;
+const RUNNING_TASK_TIMEOUT_MINUTES = 10;
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -1310,6 +1311,7 @@ export function DashboardPage() {
               <Chip size="small" label={`${activeActionCount} active`} sx={{ bgcolor: '#fff8df', color: '#75611d', fontWeight: 900 }} />
             )}
             <Chip size="small" label={`Auto ${taskRefreshLabel}`} sx={{ bgcolor: '#f3f5f5', color: '#62666f', fontWeight: 800 }} />
+            <Chip size="small" label={`Timeout ${RUNNING_TASK_TIMEOUT_MINUTES}m`} sx={{ bgcolor: '#fff1ef', color: '#8b3a33', fontWeight: 800 }} />
             <Box sx={{ flex: 1 }} />
             <Tooltip title="Refresh tasks" arrow>
               <IconButton
