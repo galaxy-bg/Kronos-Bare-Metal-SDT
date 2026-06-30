@@ -421,7 +421,13 @@ class HpeIloAdapter(BaseVendorAdapter):
         return results
 
     def _read_volumes(self, value: object) -> list[dict[str, Any]]:
-        return self._read_linked_collection(value)
+        path = self._odata_path(value)
+        if not path:
+            return self._read_linked_collection(value)
+        collection = self._safe_get(path)
+        if not collection:
+            return [{"path": path, "resource": {"error": "read failed"}}]
+        return self._read_collection_members(collection)
 
     def _extract_controllers(self, storage_resource: dict[str, Any]) -> list[dict[str, Any]]:
         controllers: list[dict[str, Any]] = []

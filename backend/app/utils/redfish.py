@@ -12,6 +12,18 @@ class RedfishError(RuntimeError):
     pass
 
 
+def redfish_error_message(exc: HTTPError | URLError | TimeoutError) -> str:
+    if isinstance(exc, HTTPError):
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        if body:
+            return f"HTTP {exc.code} {exc.reason}: {body}"
+        return f"HTTP {exc.code} {exc.reason}"
+    return str(exc)
+
+
 def basic_auth_header(username: str, password: str) -> str:
     token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
     return f"Basic {token}"
@@ -33,7 +45,7 @@ def redfish_get_json(
         with urlopen(request, timeout=timeout, context=context) as response:
             body = response.read().decode("utf-8")
     except (HTTPError, URLError, TimeoutError) as exc:
-        raise RedfishError(str(exc)) from exc
+        raise RedfishError(redfish_error_message(exc)) from exc
     try:
         return json.loads(body)
     except json.JSONDecodeError as exc:
@@ -61,7 +73,7 @@ def redfish_patch_json(
         with urlopen(request, timeout=timeout, context=context) as response:
             body = response.read().decode("utf-8")
     except (HTTPError, URLError, TimeoutError) as exc:
-        raise RedfishError(str(exc)) from exc
+        raise RedfishError(redfish_error_message(exc)) from exc
     if not body:
         return {"status": "accepted"}
     try:
@@ -93,7 +105,7 @@ def redfish_post_json(
             location = response.headers.get("Location")
             status = response.status
     except (HTTPError, URLError, TimeoutError) as exc:
-        raise RedfishError(str(exc)) from exc
+        raise RedfishError(redfish_error_message(exc)) from exc
     if not body:
         result: dict[str, Any] = {"status": "accepted", "http_status": status}
         if location:
@@ -126,7 +138,7 @@ def redfish_delete_json(
             body = response.read().decode("utf-8")
             status = response.status
     except (HTTPError, URLError, TimeoutError) as exc:
-        raise RedfishError(str(exc)) from exc
+        raise RedfishError(redfish_error_message(exc)) from exc
     if not body:
         return {"status": "accepted", "http_status": status}
     try:
