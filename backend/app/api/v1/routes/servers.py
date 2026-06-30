@@ -290,6 +290,13 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
     if disk_mode == "RAID" and raid_level == "RAID10":
         add_check("raid10-even-count", selected_count % 2 == 0, "RAID10 requires an even number of selected drives.")
 
+    if disk_mode == "NON_RAID":
+        add_check(
+            "non-raid-redfish-support",
+            False,
+            "Non-RAID/JBOD apply is not supported by this HPE MR Redfish path; the controller returns UnsupportedOperation.",
+        )
+
     add_check(
         "disk-mode",
         True,
@@ -311,7 +318,7 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         "missing_drive_paths": missing_paths,
         "checks": checks,
         "eligible": eligible,
-        "apply_supported": False,
+        "apply_supported": bool(raid_summary.get("apply_supported")),
         "destructive": True,
         "message": "Preview only. No storage changes were applied. Next step will require explicit destructive confirmation.",
         "raid": raid_summary,

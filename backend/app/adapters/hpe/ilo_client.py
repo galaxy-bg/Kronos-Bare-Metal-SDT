@@ -139,29 +139,7 @@ class HpeIloAdapter(BaseVendorAdapter):
         volume_name = self._volume_name(str(config.get("volume_name") or "kdx-volume"))
 
         if disk_mode in {"NON_RAID", "NONRAID", "JBOD"} or raid_level == "NON_RAID":
-            operations = []
-            for index, drive_path in enumerate(selected_drive_paths, start=1):
-                collection_path = self._volume_collection_for_drive(storage_inventory, drive_path)
-                payload = self._volume_create_payload(
-                    self._volume_name(f"{volume_name}-{index}"),
-                    "None",
-                    [drive_path],
-                )
-                operations.append(
-                    {
-                        "disk_mode": "NON_RAID",
-                        "volume_collection": collection_path,
-                        "payload": payload,
-                        "result": self._post(collection_path, payload),
-                    }
-                )
-            return {
-                "vendor": self.vendor,
-                "implemented": True,
-                "disk_mode": "NON_RAID",
-                "operations": operations,
-                "message": "Non-RAID/JBOD volume create requests were submitted.",
-            }
+            raise RedfishError("Non-RAID/JBOD apply is not supported by this HPE MR Redfish path; use RAID volume create or vendor tooling.")
 
         collection_path = self._volume_collection_for_drive_set(storage_inventory, selected_drive_paths)
         payload = self._volume_create_payload(volume_name, raid_level, selected_drive_paths)
