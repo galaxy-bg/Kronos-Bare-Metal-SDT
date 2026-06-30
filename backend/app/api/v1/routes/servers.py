@@ -25,6 +25,8 @@ from app.schemas.action import (
     IloNetworkActionRequest,
     IloUserActionRequest,
     RaidApplyRequest,
+    RaidClearConfigRequest,
+    RaidDeleteVolumeRequest,
     RaidPlanRequest,
     ServerActionRead,
 )
@@ -43,6 +45,19 @@ ENROLLMENT_SECRET = os.environ.get("KDX_ENROLLMENT_SECRET") or secrets.token_url
 DEFAULT_MANAGED_ILO_USER = os.environ.get("KDX_DEFAULT_ILO_USER", "hpadmin")
 DEFAULT_MANAGED_ILO_PASSWORD = os.environ.get("KDX_DEFAULT_ILO_PASSWORD", "HP1nv3nt")
 REDFISH_INVENTORY_KEYS = ("storage_redfish", "raid", "firmware_inventory", "device_inventory")
+
+
+def require_storage_confirmation(value: str) -> None:
+    if value.strip().lower() != "confirm":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Type 'confirm' to continue.")
+
+
+def refresh_inventory_best_effort(server: Server, db: Session) -> dict[str, Any] | None:
+    try:
+        inventory = InventoryService(db).refresh_from_bmc(server)
+    except Exception:
+        return None
+    return {"inventory_id": inventory.id, "status": "stored"}
 
 
 def b64url_encode(data: bytes) -> str:
@@ -696,9 +711,7 @@ def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Sessi
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
-    expected_confirmation = f"APPLY {server.serial_number}"
-    if payload.confirmation != expected_confirmation:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Type '{expected_confirmation}' to stage this storage apply request.")
+    require_storage_confirmation(payload.confirmation)
 
     adapter = AdapterService().build_for_server(server)
     if not server.bmc_ip:
@@ -744,6 +757,54 @@ def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Sessi
     db.commit()
     db.refresh(action)
     return action_to_read(action)
+
+
+@router.post("/{server_id}/raid/clear-config")
+def clear_server_raid_config(server_id: int, payload: RaidClearConfigRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    require_storage_confirmation(payload.confirmation)
+
+    adapter = AdapterService().build_for_server(server)
+    if not server.bmc_ip:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="BMC/iLO IP is not configured.")
+    if not adapter.context.credential:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Validated iLO credential is required.")
+    clear_method = getattr(adapter, "clear_raid_config", None)
+    if not callable(clear_method):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="RAID config clear is not supported by this adapter.")
+
+    try:
+        result = clear_method(payload.storage_path)
+    except RedfishError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Redfish RAID clear failed: {exc}") from exc
+    result["inventory_refresh"] = refresh_inventory_best_effort(server, db)
+    return result
+
+
+@router.post("/{server_id}/raid/volumes/delete")
+def delete_server_raid_volume(server_id: int, payload: RaidDeleteVolumeRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    require_storage_confirmation(payload.confirmation)
+
+    adapter = AdapterService().build_for_server(server)
+    if not server.bmc_ip:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="BMC/iLO IP is not configured.")
+    if not adapter.context.credential:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Validated iLO credential is required.")
+    delete_method = getattr(adapter, "delete_raid_volume", None)
+    if not callable(delete_method):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Logical drive delete is not supported by this adapter.")
+
+    try:
+        result = delete_method(payload.volume_path)
+    except RedfishError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Redfish logical drive delete failed: {exc}") from exc
+    result["inventory_refresh"] = refresh_inventory_best_effort(server, db)
+    return result
 
 
 @router.post("/actions/{action_id}/execute-storage-apply", response_model=ServerActionRead)

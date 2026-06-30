@@ -107,3 +107,31 @@ def redfish_post_json(
         result.setdefault("location", location)
     result.setdefault("http_status", status)
     return result
+
+
+def redfish_delete_json(
+    base_url: str,
+    path: str,
+    username: str,
+    password: str,
+    timeout: int = 30,
+    verify_tls: bool = False,
+) -> dict[str, Any]:
+    url = base_url.rstrip("/") + "/" + path.lstrip("/")
+    headers = {"Accept": "application/json", "Authorization": basic_auth_header(username, password)}
+    request = Request(url, headers=headers, method="DELETE")
+    context = None if verify_tls else ssl._create_unverified_context()
+    try:
+        with urlopen(request, timeout=timeout, context=context) as response:
+            body = response.read().decode("utf-8")
+            status = response.status
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise RedfishError(str(exc)) from exc
+    if not body:
+        return {"status": "accepted", "http_status": status}
+    try:
+        result = json.loads(body)
+    except json.JSONDecodeError:
+        result = {"status": "accepted", "raw": body}
+    result.setdefault("http_status", status)
+    return result

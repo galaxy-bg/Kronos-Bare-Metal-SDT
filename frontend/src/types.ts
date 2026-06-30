@@ -135,6 +135,16 @@ export type RaidApplyPayload = RaidPlanPayload & {
   confirmation: string;
 };
 
+export type RaidClearConfigPayload = {
+  confirmation: string;
+  storage_path?: string | null;
+};
+
+export type RaidDeleteVolumePayload = {
+  confirmation: string;
+  volume_path: string;
+};
+
 export type RaidPlanResult = {
   server_id: number;
   serial_number: string;

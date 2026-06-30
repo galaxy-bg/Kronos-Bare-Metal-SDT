@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 from app.adapters.base import AdapterContext, BaseVendorAdapter
-from app.utils.redfish import RedfishError, redfish_get_json, redfish_patch_json, redfish_post_json
+from app.utils.redfish import RedfishError, redfish_delete_json, redfish_get_json, redfish_patch_json, redfish_post_json
 
 
 class HpeIloAdapter(BaseVendorAdapter):
@@ -35,6 +35,10 @@ class HpeIloAdapter(BaseVendorAdapter):
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         base_url, username, password = self._require_connection()
         return redfish_post_json(base_url, path, username, password, payload)
+
+    def _delete(self, path: str) -> dict[str, Any]:
+        base_url, username, password = self._require_connection()
+        return redfish_delete_json(base_url, path, username, password)
 
     def detect(self) -> dict[str, Any]:
         root = self._get("/redfish/v1/")
@@ -169,6 +173,56 @@ class HpeIloAdapter(BaseVendorAdapter):
             "payload": payload,
             "result": self._post(collection_path, payload),
             "message": f"{raid_level} volume create request was submitted.",
+        }
+
+    def clear_raid_config(self, storage_path: str | None = None) -> dict[str, Any]:
+        storage_inventory = self.get_storage_inventory()
+        operations: list[dict[str, Any]] = []
+        requested_path = self._normalize_odata_path(storage_path) if storage_path else None
+
+        for storage_member in storage_inventory.get("storage", []):
+            if not isinstance(storage_member, dict):
+                continue
+            member_path = self._normalize_odata_path(str(storage_member.get("path") or ""))
+            if requested_path and member_path != requested_path:
+                continue
+            resource = storage_member.get("resource") if isinstance(storage_member.get("resource"), dict) else {}
+            actions = resource.get("Actions") if isinstance(resource, dict) else {}
+            reset = actions.get("#Storage.ResetToDefaults") if isinstance(actions, dict) else None
+            target = reset.get("target") if isinstance(reset, dict) else None
+            if not target:
+                continue
+            allowable = reset.get("ResetType@Redfish.AllowableValues") if isinstance(reset, dict) else []
+            reset_type = "ResetAll" if not allowable or "ResetAll" in allowable else str(allowable[0])
+            payload = {"ResetType": reset_type}
+            operations.append(
+                {
+                    "storage_path": storage_member.get("path"),
+                    "action": str(target),
+                    "payload": payload,
+                    "result": self._post(str(target), payload),
+                }
+            )
+
+        if not operations:
+            raise RedfishError("No HPE Redfish Storage.ResetToDefaults action was found for this storage controller.")
+        return {
+            "vendor": self.vendor,
+            "implemented": True,
+            "operations": operations,
+            "message": "Storage config clear request was submitted.",
+        }
+
+    def delete_raid_volume(self, volume_path: str) -> dict[str, Any]:
+        normalized = self._normalize_odata_path(volume_path)
+        if not normalized:
+            raise RedfishError("Volume path is required.")
+        return {
+            "vendor": self.vendor,
+            "implemented": True,
+            "volume_path": volume_path,
+            "result": self._delete(volume_path),
+            "message": "Logical drive delete request was submitted.",
         }
 
     def get_firmware_inventory(self) -> dict[str, Any]:
@@ -492,8 +546,8 @@ class HpeIloAdapter(BaseVendorAdapter):
             )
 
         return {
-            "apply_supported": False,
-            "apply_note": "Read-only discovery is enabled. RAID apply will be added as a guarded queued job with explicit destructive confirmation.",
+            "apply_supported": True,
+            "apply_note": "Guarded RAID apply is enabled with explicit destructive confirmation.",
             "controller_count": len(controllers),
             "drive_count": drive_count,
             "volume_count": len(volumes),
@@ -509,27 +563,32 @@ class HpeIloAdapter(BaseVendorAdapter):
 
     def _volume_create_payload(self, name: str, raid_type: str, drive_paths: list[str]) -> dict[str, Any]:
         redfish_raid_type = "None" if raid_type in {"None", "NON_RAID", "JBOD"} else raid_type
-        return {
+        payload = {
             "Name": self._volume_name(name),
             "RAIDType": redfish_raid_type,
-            "InitializeMethod": "Background",
             "Links": {
                 "Drives": [{"@odata.id": path} for path in drive_paths],
             },
         }
+        if redfish_raid_type != "None":
+            payload["InitializeMethod"] = "Background"
+        return payload
+
+    def _normalize_odata_path(self, path: str | None) -> str:
+        return str(path or "").strip().rstrip("/")
 
     def _volume_collection_for_drive(self, storage_inventory: dict[str, Any], drive_path: str) -> str:
         for storage_member in storage_inventory.get("storage", []):
             if not isinstance(storage_member, dict):
                 continue
             drive_paths = {
-                str(nested.get("@odata.id"))
+                self._normalize_odata_path(str(nested.get("@odata.id")))
                 for item in storage_member.get("drives", [])
                 if isinstance(item, dict)
                 for nested in [item.get("resource") if isinstance(item.get("resource"), dict) else item]
                 if isinstance(nested, dict) and nested.get("@odata.id")
             }
-            if drive_path not in drive_paths:
+            if self._normalize_odata_path(drive_path) not in drive_paths:
                 continue
             resource = storage_member.get("resource") if isinstance(storage_member.get("resource"), dict) else {}
             volumes = resource.get("Volumes") if isinstance(resource, dict) else None

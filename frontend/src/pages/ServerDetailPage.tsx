@@ -27,6 +27,8 @@ import {
 } from '@mui/material';
 import CancelIcon from '@mui/icons-material/Cancel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CleaningServicesIcon from '@mui/icons-material/CleaningServices';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DevicesIcon from '@mui/icons-material/Devices';
@@ -35,7 +37,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
-import { applyRaidPlan, fetchServer, planRaid } from '../api/client';
+import { applyRaidPlan, clearRaidConfig, deleteRaidVolume, fetchServer, planRaid } from '../api/client';
 import type { RaidPlanResult, ServerDetail } from '../types';
 
 function formatDate(value: string) {
@@ -286,6 +288,48 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
   const drives = asArray(raid.drives);
   const volumes = asArray(raid.volumes);
   const recommendations = asArray(raid.recommendations);
+  const [storageConfirmation, setStorageConfirmation] = useState('');
+  const [storageBusy, setStorageBusy] = useState<string | null>(null);
+  const [storageMessage, setStorageMessage] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const confirmed = storageConfirmation.trim().toLowerCase() === 'confirm';
+
+  function scheduleReload() {
+    window.setTimeout(() => window.location.reload(), 900);
+  }
+
+  async function clearConfig() {
+    setStorageBusy('clear');
+    setStorageMessage(null);
+    setStorageError(null);
+    try {
+      await clearRaidConfig(server.id, { confirmation: storageConfirmation });
+      setStorageMessage('Storage config clear was submitted. Refreshing inventory...');
+      setStorageConfirmation('');
+      scheduleReload();
+    } catch {
+      setStorageError("Storage config clear failed. Type 'confirm' and make sure Redfish credentials are valid.");
+    } finally {
+      setStorageBusy(null);
+    }
+  }
+
+  async function deleteVolume(volumePath: string) {
+    setStorageBusy(volumePath);
+    setStorageMessage(null);
+    setStorageError(null);
+    try {
+      await deleteRaidVolume(server.id, { confirmation: storageConfirmation, volume_path: volumePath });
+      setStorageMessage('Logical drive delete was submitted. Refreshing inventory...');
+      setStorageConfirmation('');
+      scheduleReload();
+    } catch {
+      setStorageError("Logical drive delete failed. Type 'confirm' and make sure the volume still exists.");
+    } finally {
+      setStorageBusy(null);
+    }
+  }
+
   const rows: InventoryRow[] = [
     ...controllers.map((item, index) => {
       const resource = resourceOf(item);
@@ -301,6 +345,7 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
     }),
     ...volumes.map((item, index) => {
       const resource = resourceOf(item);
+      const path = pathOf(item);
       return {
         id: `volume-${index}`,
         type: 'Logical Drive',
@@ -309,6 +354,18 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
         capacity: formatCapacity(resource),
         location: locationText(resource),
         status: <HealthValue value={statusText(resource)} />,
+        action: path ? (
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            startIcon={<DeleteOutlineIcon />}
+            disabled={!confirmed || storageBusy !== null}
+            onClick={() => deleteVolume(path)}
+          >
+            Delete
+          </Button>
+        ) : '-',
       };
     }),
     ...drives.map((item, index) => {
@@ -321,6 +378,7 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
         capacity: formatCapacity(resource),
         location: locationText(resource),
         status: <HealthValue value={statusText(resource)} />,
+        action: '-',
       };
     }),
   ];
@@ -339,14 +397,43 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
         <Chip size="small" label={`${textField(raid, ['volume_count'], '0')} volumes`} />
         <Chip size="small" label={raid.apply_supported ? 'RAID apply enabled' : 'RAID preview only'} />
       </Stack>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={1.25}
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        sx={{ border: '1px solid', borderColor: '#f0d9a3', bgcolor: '#fffaf0', borderRadius: 1, p: 1.25 }}
+      >
+        <TextField
+          label="Type confirm"
+          value={storageConfirmation}
+          onChange={(event) => setStorageConfirmation(event.target.value)}
+          size="small"
+          sx={{ minWidth: 190 }}
+        />
+        <Button
+          color="error"
+          variant="outlined"
+          startIcon={<CleaningServicesIcon />}
+          disabled={!confirmed || storageBusy !== null}
+          onClick={clearConfig}
+        >
+          {storageBusy === 'clear' ? 'Clearing...' : 'Config Clear'}
+        </Button>
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
+          Deletes storage configuration; use delete buttons for a single logical drive.
+        </Typography>
+      </Stack>
+      {storageMessage && <Alert severity="success">{storageMessage}</Alert>}
+      {storageError && <Alert severity="error">{storageError}</Alert>}
       <InventoryTable
         columns={[
           { key: 'type', label: 'Type', width: '140px' },
           { key: 'name', label: 'Name' },
           { key: 'version', label: 'Version / RAID', width: '160px' },
           { key: 'capacity', label: 'Capacity', width: '120px' },
-          { key: 'location', label: 'Location', width: '300px' },
+          { key: 'location', label: 'Location', width: '260px' },
           { key: 'status', label: 'Status', width: '230px' },
+          { key: 'action', label: 'Action', width: '140px' },
         ]}
         rows={rows}
         emptyText="No Redfish storage data has been collected yet."
@@ -447,10 +534,10 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
         initialize_as_jbod: diskMode === 'NON_RAID',
         confirmation: applyConfirmation,
       });
-      setApplyMessage(`Storage apply request staged as task #${action.id}. Executor is not enabled yet.`);
+      setApplyMessage(`Storage apply request staged as task #${action.id}.`);
       setApplyConfirmation('');
     } catch {
-      setApplyError(`Storage apply could not be staged. Type APPLY ${server.serial_number} and make sure the plan is still eligible.`);
+      setApplyError("Storage apply could not be staged. Type 'confirm' and make sure the plan is still eligible.");
     } finally {
       setApplying(false);
     }
@@ -615,17 +702,17 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
                 </Alert>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', md: 'center' }}>
                   <TextField
-                    label={`Type APPLY ${server.serial_number}`}
+                    label="Type confirm"
                     value={applyConfirmation}
                     onChange={(event) => setApplyConfirmation(event.target.value)}
                     size="small"
-                    sx={{ minWidth: 280 }}
+                    sx={{ minWidth: 190 }}
                   />
                   <Button
                     variant="contained"
                     color="warning"
                     onClick={stageApply}
-                    disabled={applying || applyConfirmation !== `APPLY ${server.serial_number}`}
+                    disabled={applying || applyConfirmation.trim().toLowerCase() !== 'confirm'}
                   >
                     {applying ? 'Staging...' : 'Stage Apply Request'}
                   </Button>

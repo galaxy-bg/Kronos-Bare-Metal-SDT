@@ -116,6 +116,34 @@ class RaidApplyRequest(RaidPlanRequest):
         return stripped
 
 
+class RaidConfirmRequest(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=32)
+
+    @field_validator("confirmation")
+    @classmethod
+    def strip_confirmation(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Confirmation cannot be empty")
+        return stripped
+
+
+class RaidClearConfigRequest(RaidConfirmRequest):
+    storage_path: str | None = Field(default=None, max_length=512)
+
+
+class RaidDeleteVolumeRequest(RaidConfirmRequest):
+    volume_path: str = Field(min_length=1, max_length=512)
+
+    @field_validator("volume_path")
+    @classmethod
+    def strip_volume_path(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Volume path cannot be empty")
+        return stripped
+
+
 class IloEnrollmentCreateResponse(BaseModel):
     token: str
     url: str

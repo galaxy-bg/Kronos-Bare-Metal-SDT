@@ -10,6 +10,8 @@ import type {
   InventoryRefreshResult,
   ManagementConfig,
   RaidApplyPayload,
+  RaidClearConfigPayload,
+  RaidDeleteVolumePayload,
   RaidPlanPayload,
   RaidPlanResult,
   ServerAction,
@@ -97,6 +99,16 @@ export async function planRaid(serverId: number, payload: RaidPlanPayload): Prom
 
 export async function applyRaidPlan(serverId: number, payload: RaidApplyPayload): Promise<ServerAction> {
   const response = await api.post<ServerAction>(`/api/v1/servers/${serverId}/raid/apply`, payload);
+  return response.data;
+}
+
+export async function clearRaidConfig(serverId: number, payload: RaidClearConfigPayload): Promise<Record<string, unknown>> {
+  const response = await api.post<Record<string, unknown>>(`/api/v1/servers/${serverId}/raid/clear-config`, payload);
+  return response.data;
+}
+
+export async function deleteRaidVolume(serverId: number, payload: RaidDeleteVolumePayload): Promise<Record<string, unknown>> {
+  const response = await api.post<Record<string, unknown>>(`/api/v1/servers/${serverId}/raid/volumes/delete`, payload);
   return response.data;
 }
 
