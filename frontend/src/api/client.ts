@@ -2,6 +2,8 @@ import axios from 'axios';
 import type {
   BulkDeleteResult,
   DashboardStats,
+  GlobalSettings,
+  GlobalSettingsResponse,
   IloEnrollmentCreate,
   IloEnrollmentInfo,
   IloEnrollmentSubmitPayload,
@@ -32,6 +34,16 @@ const api = axios.create({
 
 export async function fetchStats(): Promise<DashboardStats> {
   const response = await api.get<DashboardStats>('/api/v1/servers/stats');
+  return response.data;
+}
+
+export async function fetchGlobalSettings(): Promise<GlobalSettingsResponse> {
+  const response = await api.get<GlobalSettingsResponse>('/api/v1/settings');
+  return response.data;
+}
+
+export async function updateGlobalSettings(settings: GlobalSettings): Promise<GlobalSettingsResponse> {
+  const response = await api.put<GlobalSettingsResponse>('/api/v1/settings', { settings });
   return response.data;
 }
 

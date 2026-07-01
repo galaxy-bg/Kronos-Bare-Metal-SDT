@@ -79,6 +79,32 @@ export type ServerAction = {
   completed_at: string | null;
 };
 
+export type GlobalSettings = {
+  task_footer: {
+    enabled: boolean;
+    active_refresh_seconds: number;
+    idle_refresh_seconds: number;
+    running_timeout_minutes: number;
+    completed_visible_minutes: number;
+  };
+  provisioning: {
+    controller_url: string;
+    default_agent_interface: string;
+    default_ilo_user: string;
+    storage_executor: 'agent' | 'redfish' | string;
+  };
+  storage: {
+    enable_destructive_raid_actions: boolean;
+    auto_jbod_remaining: boolean;
+    prefer_agent_storage: boolean;
+  };
+};
+
+export type GlobalSettingsResponse = {
+  settings: GlobalSettings;
+  updated_at: string;
+};
+
 export type DashboardStats = {
   total_servers: number;
   online_servers: number;

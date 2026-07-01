@@ -1,5 +1,8 @@
-import { AppBar, Box, Container, Stack, Toolbar, Typography } from '@mui/material';
-import { Outlet } from 'react-router-dom';
+import { AppBar, Box, Button, Container, Stack, Toolbar, Typography } from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
+import StorageIcon from '@mui/icons-material/Storage';
+import { Link as RouterLink, Outlet } from 'react-router-dom';
+import { TaskFooter } from './components/TaskFooter';
 
 function BrandMark() {
   return (
@@ -35,18 +38,27 @@ export default function App() {
               </Typography>
             </Box>
             <Box sx={{ flex: 1 }} />
+            <Stack direction="row" spacing={1} sx={{ display: { xs: 'none', sm: 'flex' } }}>
+              <Button component={RouterLink} to="/" startIcon={<StorageIcon />} variant="outlined" size="small">
+                Servers
+              </Button>
+              <Button component={RouterLink} to="/setup" startIcon={<SettingsIcon />} variant="outlined" size="small">
+                Setup
+              </Button>
+            </Stack>
             <Typography
               variant="body2"
-              sx={{ display: { xs: 'none', md: 'block' }, color: 'text.secondary', fontWeight: 700 }}
+              sx={{ display: { xs: 'none', lg: 'block' }, color: 'text.secondary', fontWeight: 700 }}
             >
               Bare Metal Discovery & Lifecycle Platform
             </Typography>
           </Stack>
         </Toolbar>
       </AppBar>
-      <Container maxWidth="xl" sx={{ py: { xs: 2.5, md: 4 } }}>
+      <Container maxWidth="xl" sx={{ pt: { xs: 2.5, md: 4 }, pb: { xs: 12, md: 14 } }}>
         <Outlet />
       </Container>
+      <TaskFooter />
     </Box>
   );
 }

@@ -6,6 +6,7 @@ import App from './App';
 import { DashboardPage } from './pages/DashboardPage';
 import { IloEnrollmentPage } from './pages/IloEnrollmentPage';
 import { ServerDetailPage } from './pages/ServerDetailPage';
+import { SetupPage } from './pages/SetupPage';
 import './styles.css';
 
 const theme = createTheme({
@@ -113,6 +114,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'enroll/ilo/:token', element: <IloEnrollmentPage /> },
+      { path: 'setup', element: <SetupPage /> },
       { path: 'servers/:serverId', element: <ServerDetailPage /> },
     ],
   },

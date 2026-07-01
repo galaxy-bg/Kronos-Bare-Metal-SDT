@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.db.base import Base
-from app.models import credential, inventory, server, server_action  # noqa: F401
+from app.models import credential, global_setting, inventory, server, server_action  # noqa: F401
 
 config = context.config
 
