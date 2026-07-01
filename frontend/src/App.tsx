@@ -46,12 +46,6 @@ export default function App() {
                 Setup
               </Button>
             </Stack>
-            <Typography
-              variant="body2"
-              sx={{ display: { xs: 'none', lg: 'block' }, color: 'text.secondary', fontWeight: 700 }}
-            >
-              Bare Metal Discovery & Lifecycle Platform
-            </Typography>
           </Stack>
         </Toolbar>
       </AppBar>
