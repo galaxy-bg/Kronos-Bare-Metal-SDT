@@ -77,6 +77,11 @@ export async function createOsStorageValidationAction(serverId: number): Promise
   return response.data;
 }
 
+export async function createHpeStorageInventoryAction(serverId: number): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/${serverId}/actions/hpe-refresh-storage-inventory`);
+  return response.data;
+}
+
 export async function createIloEnrollment(serverId: number): Promise<IloEnrollmentCreate> {
   const response = await api.post<IloEnrollmentCreate>(`/api/v1/servers/${serverId}/ilo-enrollment`);
   return response.data;

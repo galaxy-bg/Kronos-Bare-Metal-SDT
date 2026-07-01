@@ -1058,6 +1058,29 @@ def validate_os_storage_action(server_id: int, db: Session = Depends(get_db)) ->
     return action_to_read(action)
 
 
+@router.post("/{server_id}/actions/hpe-refresh-storage-inventory", response_model=ServerActionRead, status_code=status.HTTP_201_CREATED)
+def hpe_refresh_storage_inventory_action(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    server = db.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    if server.status == "deregistered":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Server is deregistered")
+
+    action = ServerAction(
+        server_id=server.id,
+        action_type="hpe_refresh_storage_inventory",
+        payload_json={
+            "agent_ip": server.agent_ip,
+            "read_only": True,
+            "tool": "ssacli",
+        },
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
+
+
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_server(server_id: int, db: Session = Depends(get_db)) -> None:
     server = db.get(Server, server_id)

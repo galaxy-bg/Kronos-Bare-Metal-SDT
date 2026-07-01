@@ -90,6 +90,31 @@ def run(command: list[str], timeout: int = 10) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def run_capture(command: list[str], timeout: int = 30) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return {"command": " ".join(command), "available": False, "returncode": None, "stdout": "", "stderr": "command not found"}
+    except subprocess.TimeoutExpired:
+        return {"command": " ".join(command), "available": True, "returncode": None, "stdout": "", "stderr": "command timed out"}
+
+    return {
+        "command": " ".join(command),
+        "available": True,
+        "returncode": result.returncode,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
+
+
 def read_first(paths: list[str]) -> str | None:
     for path in paths:
         try:
@@ -236,6 +261,41 @@ def validate_os_storage() -> dict[str, Any]:
         "controller_backed_disks": controller_backed,
         "raw": data,
         "message": f"OS sees {len(disks)} disk(s) via lsblk.",
+    }
+
+
+def ssacli_path() -> str | None:
+    return first_existing_path(HPE_TOOL_CANDIDATES["ssacli"])
+
+
+def inspect_hpe_storage_inventory() -> dict[str, Any]:
+    os_storage = validate_os_storage()
+    executable = ssacli_path()
+    if executable is None:
+        return {
+            "source": "agent-storage-read-only",
+            "tool": "ssacli",
+            "tool_available": False,
+            "os_storage": os_storage,
+            "message": "ssacli is not available; OS storage was validated with lsblk only.",
+        }
+
+    commands = {
+        "controller_status": [executable, "ctrl", "all", "show", "status"],
+        "controller_detail": [executable, "ctrl", "all", "show", "detail"],
+        "config_detail": [executable, "ctrl", "all", "show", "config", "detail"],
+    }
+    results = {name: run_capture(command, timeout=90) for name, command in commands.items()}
+    failed = [name for name, result in results.items() if result.get("returncode") != 0]
+    return {
+        "source": "agent-storage-read-only",
+        "tool": "ssacli",
+        "tool_available": True,
+        "tool_path": executable,
+        "os_storage": os_storage,
+        "ssacli": results,
+        "failed_sections": failed,
+        "message": "HPE storage inventory was read with ssacli and lsblk.",
     }
 
 
@@ -1302,6 +1362,8 @@ def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor
     action_type = action.get("action_type")
     if action_type == "validate_os_storage":
         return validate_os_storage()
+    if action_type == "hpe_refresh_storage_inventory":
+        return inspect_hpe_storage_inventory()
 
     if not bool_setting(config, "KDX_ENABLE_HPE_ACTIONS", True):
         raise RuntimeError("HPE actions are disabled by KDX_ENABLE_HPE_ACTIONS")

@@ -65,6 +65,7 @@ import {
   createIloLicenseAction,
   createIloNetworkAction,
   createIloUserAction,
+  createHpeStorageInventoryAction,
   createOsStorageValidationAction,
   deleteServer,
   deregisterServer,
@@ -181,6 +182,7 @@ function actionLabel(actionType: string) {
     hpe_verify_ilo_credential: 'Verify iLO Credential',
     hpe_install_ilo_license: 'Install iLO License',
     validate_os_storage: 'Validate OS Storage',
+    hpe_refresh_storage_inventory: 'HPE Storage Inventory',
   };
   return labels[actionType] ?? actionType.split('_').join(' ');
 }
@@ -205,8 +207,14 @@ function actionDetailLines(action: ServerAction, target?: ServerSummary) {
   if (bmc?.ip) lines.push(`Detected BMC IP: ${String(bmc.ip)}`);
   if (result.action) lines.push(`Redfish action: ${String(result.action)}`);
   if (typeof result.disk_count === 'number') lines.push(`OS disks: ${result.disk_count}`);
+  if (typeof result.tool_available === 'boolean') lines.push(`${String(result.tool ?? 'tool')}: ${result.tool_available ? 'available' : 'missing'}`);
+  if (result.tool_path) lines.push(`Tool path: ${String(result.tool_path)}`);
+  const osStorage = result.os_storage && typeof result.os_storage === 'object' ? result.os_storage as Record<string, unknown> : null;
+  if (typeof osStorage?.disk_count === 'number') lines.push(`OS disks: ${osStorage.disk_count}`);
   const storage = Array.isArray(result.storage) ? result.storage : [];
-  storage.slice(0, 8).forEach((item, index) => {
+  const nestedStorage = osStorage && Array.isArray(osStorage.storage) ? osStorage.storage : [];
+  const storageRows = storage.length > 0 ? storage : nestedStorage;
+  storageRows.slice(0, 8).forEach((item, index) => {
     if (!item || typeof item !== 'object') return;
     const disk = item as Record<string, unknown>;
     lines.push(
@@ -860,6 +868,19 @@ export function DashboardPage() {
     }
   }
 
+  async function queueHpeStorageInventory() {
+    if (!selectedServer) return;
+    const server = selectedServer;
+    closeMenu();
+    setError(null);
+    try {
+      await createHpeStorageInventoryAction(server.id);
+      await load();
+    } catch {
+      setError('HPE storage inventory task could not be queued.');
+    }
+  }
+
   function closeEdit() {
     setEditOpen(false);
     setSelectedServer(null);
@@ -1373,8 +1394,19 @@ export function DashboardPage() {
               <TableBody>
                 {actions.map((action) => {
                   const target = serverById.get(action.server_id);
-                  const diskCount = typeof action.result_json?.disk_count === 'number' ? action.result_json.disk_count : null;
-                  const resultText = action.error_message || (diskCount !== null ? `OS disks: ${diskCount}` : action.status === 'succeeded' ? 'Completed successfully' : '-');
+                  const diskCount = typeof action.result_json?.disk_count === 'number'
+                    ? action.result_json.disk_count
+                    : action.result_json?.os_storage && typeof action.result_json.os_storage === 'object' && typeof (action.result_json.os_storage as Record<string, unknown>).disk_count === 'number'
+                      ? (action.result_json.os_storage as Record<string, number>).disk_count
+                      : null;
+                  const toolAvailable = typeof action.result_json?.tool_available === 'boolean' ? action.result_json.tool_available : null;
+                  const resultText = action.error_message || (
+                    diskCount !== null
+                      ? `OS disks: ${diskCount}${toolAvailable === false ? ' / ssacli missing' : ''}`
+                      : action.status === 'succeeded'
+                        ? 'Completed successfully'
+                        : '-'
+                  );
                   const detailLines = actionDetailLines(action, target);
                   return (
                     <TableRow key={action.id} hover>
@@ -1497,6 +1529,10 @@ export function DashboardPage() {
         <MenuItem onClick={queueOsStorageValidation} disabled={!selectedServer || selectedServer.status === 'deregistered'}>
           <TaskAltIcon fontSize="small" sx={{ mr: 1 }} />
           Validate OS Storage
+        </MenuItem>
+        <MenuItem onClick={queueHpeStorageInventory} disabled={!selectedServer || selectedServer.status === 'deregistered'}>
+          <StorageIcon fontSize="small" sx={{ mr: 1 }} />
+          HPE Storage Inventory
         </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />

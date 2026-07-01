@@ -113,6 +113,7 @@ For HPE:
 - Controller stores requested management profile: IP, subnet, gateway, DNS, NTP and VLAN.
 - Agent later polls for pending actions and runs the vendor-specific script locally.
 - Once the iLO IP is configured, the controller can move to Redfish-based lifecycle operations.
+- Storage inventory starts read-only through `validate_os_storage` and `hpe_refresh_storage_inventory`.
 - RAID operations through `ssacli` must be action-based and disabled by default in the first ISO.
 
 For Dell:
