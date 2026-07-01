@@ -203,6 +203,42 @@ def collect_storage() -> list[dict[str, Any]]:
     return disks
 
 
+def validate_os_storage() -> dict[str, Any]:
+    command = ["lsblk", "-J", "-b", "-o", "NAME,TYPE,SIZE,MODEL,SERIAL"]
+    output = run(command)
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("lsblk did not return valid JSON") from exc
+
+    disks = []
+    controller_backed = []
+    for device in data.get("blockdevices", []):
+        if device.get("type") != "disk":
+            continue
+        size = device.get("size")
+        disk = {
+            "name": device.get("name"),
+            "model": device.get("model"),
+            "serial": device.get("serial"),
+            "size_gb": round(int(size) / 1024 / 1024 / 1024, 2) if size else None,
+        }
+        disks.append(disk)
+        model = str(disk.get("model") or "").lower()
+        if "mr" in model or "smart array" in model or "megaraid" in model:
+            controller_backed.append(disk)
+
+    return {
+        "command": " ".join(command),
+        "disk_count": len(disks),
+        "storage": disks,
+        "controller_backed_disk_count": len(controller_backed),
+        "controller_backed_disks": controller_backed,
+        "raw": data,
+        "message": f"OS sees {len(disks)} disk(s) via lsblk.",
+    }
+
+
 def collect_network() -> list[dict[str, Any]]:
     output = run(["ip", "-j", "addr"])
     try:
@@ -1263,12 +1299,15 @@ def run_hponcfg(xml_content: bytes) -> dict[str, Any]:
 
 
 def execute_action(action: dict[str, Any], config: dict[str, str], system_vendor: str | None) -> dict[str, Any]:
+    action_type = action.get("action_type")
+    if action_type == "validate_os_storage":
+        return validate_os_storage()
+
     if not bool_setting(config, "KDX_ENABLE_HPE_ACTIONS", True):
         raise RuntimeError("HPE actions are disabled by KDX_ENABLE_HPE_ACTIONS")
     if not is_hpe_vendor(system_vendor):
         raise RuntimeError(f"HPE actions are not allowed for vendor: {system_vendor or 'unknown'}")
 
-    action_type = action.get("action_type")
     payload = action.get("payload") or {}
 
     if action_type == "hpe_verify_ilo_credential":

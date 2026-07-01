@@ -72,6 +72,11 @@ export async function createIloLicenseAction(serverId: number, payload: IloLicen
   return response.data;
 }
 
+export async function createOsStorageValidationAction(serverId: number): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/${serverId}/actions/validate-os-storage`);
+  return response.data;
+}
+
 export async function createIloEnrollment(serverId: number): Promise<IloEnrollmentCreate> {
   const response = await api.post<IloEnrollmentCreate>(`/api/v1/servers/${serverId}/ilo-enrollment`);
   return response.data;

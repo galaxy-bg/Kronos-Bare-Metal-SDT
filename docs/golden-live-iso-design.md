@@ -97,6 +97,12 @@ hpe_set_ilo_network
 
 ### Phase C: Storage Read-Only Inventory
 
+Use `lsblk` first to validate what the booted OS actually sees after a controller or JBOD change:
+
+- Block device name, model, serial and size
+- Disk count visible to Linux
+- Controller-backed devices such as MR/Smart Array logical disks
+
 Use `ssacli` for read-only storage inventory:
 
 - Controller model
@@ -108,6 +114,7 @@ Use `ssacli` for read-only storage inventory:
 Action:
 
 ```text
+validate_os_storage
 hpe_refresh_storage_inventory
 ```
 

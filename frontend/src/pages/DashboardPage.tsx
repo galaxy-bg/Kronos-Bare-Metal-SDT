@@ -65,6 +65,7 @@ import {
   createIloLicenseAction,
   createIloNetworkAction,
   createIloUserAction,
+  createOsStorageValidationAction,
   deleteServer,
   deregisterServer,
   executeStorageApplyAction,
@@ -179,6 +180,7 @@ function actionLabel(actionType: string) {
     hpe_set_ilo_network: 'Set Management Network',
     hpe_verify_ilo_credential: 'Verify iLO Credential',
     hpe_install_ilo_license: 'Install iLO License',
+    validate_os_storage: 'Validate OS Storage',
   };
   return labels[actionType] ?? actionType.split('_').join(' ');
 }
@@ -202,6 +204,15 @@ function actionDetailLines(action: ServerAction, target?: ServerSummary) {
   if (auth?.username) lines.push(`Auth: ${String(auth.username)}`);
   if (bmc?.ip) lines.push(`Detected BMC IP: ${String(bmc.ip)}`);
   if (result.action) lines.push(`Redfish action: ${String(result.action)}`);
+  if (typeof result.disk_count === 'number') lines.push(`OS disks: ${result.disk_count}`);
+  const storage = Array.isArray(result.storage) ? result.storage : [];
+  storage.slice(0, 8).forEach((item, index) => {
+    if (!item || typeof item !== 'object') return;
+    const disk = item as Record<string, unknown>;
+    lines.push(
+      `Disk ${index + 1}: ${String(disk.name ?? '-')} ${String(disk.size_gb ?? '-')}GB ${String(disk.model ?? '-')}`,
+    );
+  });
   if (action.error_message) lines.push(`Error: ${action.error_message}`);
   if (!action.error_message && action.status === 'succeeded') lines.push('Result: Completed successfully');
 
@@ -836,6 +847,19 @@ export function DashboardPage() {
     }
   }
 
+  async function queueOsStorageValidation() {
+    if (!selectedServer) return;
+    const server = selectedServer;
+    closeMenu();
+    setError(null);
+    try {
+      await createOsStorageValidationAction(server.id);
+      await load();
+    } catch {
+      setError('OS storage validation task could not be queued.');
+    }
+  }
+
   function closeEdit() {
     setEditOpen(false);
     setSelectedServer(null);
@@ -1349,7 +1373,8 @@ export function DashboardPage() {
               <TableBody>
                 {actions.map((action) => {
                   const target = serverById.get(action.server_id);
-                  const resultText = action.error_message || (action.status === 'succeeded' ? 'Completed successfully' : '-');
+                  const diskCount = typeof action.result_json?.disk_count === 'number' ? action.result_json.disk_count : null;
+                  const resultText = action.error_message || (diskCount !== null ? `OS disks: ${diskCount}` : action.status === 'succeeded' ? 'Completed successfully' : '-');
                   const detailLines = actionDetailLines(action, target);
                   return (
                     <TableRow key={action.id} hover>
@@ -1468,6 +1493,10 @@ export function DashboardPage() {
         >
           <StorageIcon fontSize="small" sx={{ mr: 1 }} />
           RAID Config
+        </MenuItem>
+        <MenuItem onClick={queueOsStorageValidation} disabled={!selectedServer || selectedServer.status === 'deregistered'}>
+          <TaskAltIcon fontSize="small" sx={{ mr: 1 }} />
+          Validate OS Storage
         </MenuItem>
         <MenuItem onClick={refreshList}>
           <RefreshIcon fontSize="small" sx={{ mr: 1 }} />
