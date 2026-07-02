@@ -69,6 +69,7 @@ import {
   createOsStorageValidationAction,
   deleteServer,
   deregisterServer,
+  discoverIloServer,
   executeStorageApplyAction,
   fetchRecentActions,
   fetchServers,
@@ -145,6 +146,13 @@ function vendorLabel(vendor?: string | null) {
   if (normalized === 'oem') return 'OEM';
   if (normalized === 'unknown') return 'Unknown';
   return vendor;
+}
+
+function discoveryLabel(server: ServerSummary) {
+  const discovery = server.management_config_json?.discovery;
+  if (discovery?.source === 'manual_ilo') return 'Manual iLO';
+  if (server.management_config_json?.registration?.status) return 'Agent';
+  return null;
 }
 
 type ServerSortKey =
@@ -492,6 +500,7 @@ export function DashboardPage() {
   const [managementIpOpen, setManagementIpOpen] = useState(false);
   const [iloUserOpen, setIloUserOpen] = useState(false);
   const [iloLicenseOpen, setIloLicenseOpen] = useState(false);
+  const [iloDiscoveryOpen, setIloDiscoveryOpen] = useState(false);
   const [enrollmentOpen, setEnrollmentOpen] = useState(false);
   const [enrollmentUrl, setEnrollmentUrl] = useState('');
   const [enrollmentExpiresAt, setEnrollmentExpiresAt] = useState<string | null>(null);
@@ -508,11 +517,18 @@ export function DashboardPage() {
     adminUsername: 'hpadmin',
     adminPassword: '',
   });
+  const [iloDiscoveryForm, setIloDiscoveryForm] = useState({
+    bmcIp: '',
+    username: 'Administrator',
+    password: '',
+    hostname: '',
+  });
   const [showIloPassword, setShowIloPassword] = useState(false);
   const [showIloConfirmPassword, setShowIloConfirmPassword] = useState(false);
   const [showIloAdminPassword, setShowIloAdminPassword] = useState(false);
   const [showLicenseAdminPassword, setShowLicenseAdminPassword] = useState(false);
   const [showNetworkAdminPassword, setShowNetworkAdminPassword] = useState(false);
+  const [showDiscoveryPassword, setShowDiscoveryPassword] = useState(false);
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
   const [refreshingInventoryId, setRefreshingInventoryId] = useState<number | null>(null);
@@ -687,6 +703,12 @@ export function DashboardPage() {
     closeMenu();
   }
 
+  function openIloDiscovery() {
+    setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '' });
+    setShowDiscoveryPassword(false);
+    setIloDiscoveryOpen(true);
+  }
+
   async function openIloEnrollment() {
     if (!selectedServer) return;
     try {
@@ -722,6 +744,12 @@ export function DashboardPage() {
     setSelectedServer(null);
     setIloLicenseForm({ licenseKey: '', adminUsername: 'hpadmin', adminPassword: '' });
     setShowLicenseAdminPassword(false);
+  }
+
+  function closeIloDiscovery() {
+    setIloDiscoveryOpen(false);
+    setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '' });
+    setShowDiscoveryPassword(false);
   }
 
   function closeEnrollment() {
@@ -825,6 +853,33 @@ export function DashboardPage() {
       closeIloLicense();
     } catch {
       setError('iLO license action could not be queued.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveIloDiscovery() {
+    const bmcIp = iloDiscoveryForm.bmcIp.trim();
+    const username = iloDiscoveryForm.username.trim();
+    const password = iloDiscoveryForm.password.trim();
+    if (!bmcIp || !username || !password) {
+      setError('iLO IP, username and password are required.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await discoverIloServer({
+        bmc_ip: bmcIp,
+        username,
+        password,
+        hostname: iloDiscoveryForm.hostname.trim() || null,
+      });
+      await load();
+      closeIloDiscovery();
+    } catch {
+      setError('iLO discovery failed. Check IP, credentials and Redfish reachability.');
     } finally {
       setSaving(false);
     }
@@ -1165,6 +1220,9 @@ export function DashboardPage() {
             Managed Servers
           </Typography>
             <Stack direction="row" spacing={1}>
+              <Button startIcon={<VpnKeyIcon />} size="small" variant="contained" onClick={openIloDiscovery}>
+                Discover iLO
+              </Button>
               <Button startIcon={<RefreshIcon />} size="small" variant="outlined" onClick={load}>
                 Refresh
               </Button>
@@ -1261,9 +1319,12 @@ export function DashboardPage() {
                     />
                   </TableCell>
                   <TableCell>
-                    <Link component={RouterLink} to={`/servers/${server.id}`} underline="hover" sx={{ fontWeight: 900, color: 'text.primary' }}>
-                      {server.hostname ?? server.serial_number}
-                    </Link>
+                    <Stack spacing={0.75} alignItems="flex-start">
+                      <Link component={RouterLink} to={`/servers/${server.id}`} underline="hover" sx={{ fontWeight: 900, color: 'text.primary' }}>
+                        {server.hostname ?? server.serial_number}
+                      </Link>
+                      {discoveryLabel(server) && <Chip size="small" label={discoveryLabel(server)} variant="outlined" />}
+                    </Stack>
                   </TableCell>
                   <TableCell>{vendorLabel(server.vendor)}</TableCell>
                   <TableCell>{server.model ?? '-'}</TableCell>
@@ -1547,6 +1608,75 @@ export function DashboardPage() {
           Deregister
         </MenuItem>
       </Menu>
+
+      <Dialog open={iloDiscoveryOpen} onClose={closeIloDiscovery} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Discover iLO</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="info">
+              Adds or updates a server directly from iLO Redfish. No OS agent is required.
+            </Alert>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  autoFocus
+                  fullWidth
+                  label="iLO IP"
+                  placeholder="192.168.88.125"
+                  value={iloDiscoveryForm.bmcIp}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, bmcIp: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Hostname"
+                  value={iloDiscoveryForm.hostname}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, hostname: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Username"
+                  value={iloDiscoveryForm.username}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, username: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="iLO Password"
+                  type={showDiscoveryPassword ? 'text' : 'password'}
+                  value={iloDiscoveryForm.password}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, password: event.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title={showDiscoveryPassword ? 'Hide password' : 'Show password'} arrow>
+                          <IconButton size="small" onClick={() => setShowDiscoveryPassword((current) => !current)} edge="end">
+                            {showDiscoveryPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            </Grid>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeIloDiscovery}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={saveIloDiscovery}
+            disabled={saving || !iloDiscoveryForm.bmcIp.trim() || !iloDiscoveryForm.username.trim() || !iloDiscoveryForm.password.trim()}
+          >
+            {saving ? 'Discovering...' : 'Discover'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={enrollmentOpen} onClose={closeEnrollment} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>Scan iLO Tag</DialogTitle>

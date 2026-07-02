@@ -51,6 +51,15 @@ export type ManagementConfig = {
     reported_at?: string | null;
     source?: string | null;
   } | null;
+  discovery?: {
+    source?: string | null;
+    discovered_at?: string | null;
+    bmc_ip?: string | null;
+  } | null;
+  registration?: {
+    status?: string | null;
+    registered_at?: string | null;
+  } | null;
 };
 
 export type IloUserActionPayload = {
@@ -64,6 +73,13 @@ export type IloLicenseActionPayload = {
   license_key: string;
   admin_username?: string | null;
   admin_password?: string | null;
+};
+
+export type ManualIloDiscoveryPayload = {
+  bmc_ip: string;
+  username: string;
+  password: string;
+  hostname?: string | null;
 };
 
 export type ServerAction = {

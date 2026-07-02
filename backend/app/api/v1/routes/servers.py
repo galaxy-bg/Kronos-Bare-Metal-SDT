@@ -14,6 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.adapters.base import AdapterContext, BmcCredential
+from app.adapters.hpe.ilo_client import HpeIloAdapter
 from app.db.session import get_db
 from app.models.server_action import ServerAction
 from app.models.server import Server
@@ -30,7 +32,7 @@ from app.schemas.action import (
     RaidPlanRequest,
     ServerActionRead,
 )
-from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ServerDetail, ServerRead, ServerUpdate
+from app.schemas.server import BulkDeleteRequest, BulkDeleteResponse, DashboardStats, ManualIloDiscoveryRequest, ServerDetail, ServerRead, ServerUpdate
 from app.services.adapter_service import AdapterService
 from app.services.inventory_service import InventoryService
 from app.utils.redfish import RedfishError
@@ -50,6 +52,23 @@ REDFISH_INVENTORY_KEYS = ("storage_redfish", "raid", "firmware_inventory", "devi
 def require_storage_confirmation(value: str) -> None:
     if value.strip().lower() != "confirm":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Type 'confirm' to continue.")
+
+
+def compact_dict(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item is not None}
+
+
+def redfish_system_identity(inventory_json: dict[str, Any]) -> dict[str, str | None]:
+    system = inventory_json.get("system") if isinstance(inventory_json, dict) else None
+    if not isinstance(system, dict):
+        return {"serial_number": None, "vendor": None, "model": None, "product_name": None, "hostname": None}
+    return {
+        "serial_number": str(system.get("SerialNumber") or system.get("SKU") or "").strip() or None,
+        "vendor": str(system.get("Manufacturer") or "").strip() or None,
+        "model": str(system.get("Model") or "").strip() or None,
+        "product_name": str(system.get("SKU") or system.get("PartNumber") or "").strip() or None,
+        "hostname": str(system.get("HostName") or system.get("Name") or "").strip() or None,
+    }
 
 
 def refresh_inventory_best_effort(server: Server, db: Session) -> dict[str, Any] | None:
@@ -457,6 +476,9 @@ def refresh_server_statuses(db: Session) -> None:
     cutoff = datetime.now(UTC) - OFFLINE_AFTER
     servers = db.scalars(select(Server).where(Server.last_seen < cutoff, Server.status == "online")).all()
     for server in servers:
+        discovery = (server.management_config_json or {}).get("discovery")
+        if server.agent_ip is None and isinstance(discovery, dict) and discovery.get("source") == "manual_ilo":
+            continue
         server.status = "offline"
     if servers:
         db.commit()
@@ -511,6 +533,89 @@ def dashboard_stats(db: Session = Depends(get_db)) -> DashboardStats:
     online = db.scalar(select(func.count(Server.id)).where(Server.status == "online")) or 0
     offline = db.scalar(select(func.count(Server.id)).where(Server.status == "offline")) or 0
     return DashboardStats(total_servers=total, online_servers=online, offline_servers=offline)
+
+
+@router.post("/discover/ilo", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
+def discover_server_by_ilo(payload: ManualIloDiscoveryRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    bmc_ip = payload.bmc_ip.strip()
+    credential = BmcCredential(username=payload.username.strip(), password=payload.password.strip())
+    adapter = HpeIloAdapter(
+        AdapterContext(
+            vendor="hpe",
+            model=None,
+            bmc_ip=bmc_ip,
+            credential=credential,
+        )
+    )
+    try:
+        inventory_json = adapter.get_system_inventory()
+    except RedfishError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"iLO Redfish discovery failed: {exc}") from exc
+
+    identity = redfish_system_identity(inventory_json)
+    serial_number = identity.get("serial_number")
+    if not serial_number:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="iLO Redfish discovery did not return a system serial number.")
+
+    now = datetime.now(UTC)
+    server = db.scalar(select(Server).where(Server.serial_number == serial_number))
+    if server is None:
+        server = db.scalar(select(Server).where(Server.bmc_ip == bmc_ip))
+
+    management_config = compact_dict(
+        {
+            "discovery": {
+                "source": "manual_ilo",
+                "discovered_at": now.isoformat(),
+                "bmc_ip": bmc_ip,
+            },
+            "credential": {
+                "username": credential.username,
+                "password": credential.password,
+                "verified": True,
+                "verified_at": now.isoformat(),
+                "source": "manual-ilo-discovery",
+            },
+            "vendor": "HPE",
+            "type": "iLO",
+            "ip": bmc_ip,
+        }
+    )
+
+    if server is None:
+        server = Server(
+            serial_number=serial_number,
+            vendor=normalize_vendor(identity.get("vendor")),
+            model=identity.get("model"),
+            product_name=identity.get("product_name"),
+            hostname=payload.hostname or identity.get("hostname") or f"iLO-{serial_number}",
+            agent_ip=None,
+            bmc_ip=bmc_ip,
+            management_config_json=management_config,
+            status="online",
+            last_seen=now,
+        )
+        db.add(server)
+        db.flush()
+    else:
+        current = dict(server.management_config_json or {})
+        current.update(management_config)
+        server.vendor = normalize_vendor(identity.get("vendor")) or server.vendor
+        server.model = identity.get("model") or server.model
+        server.product_name = identity.get("product_name") or server.product_name
+        server.hostname = payload.hostname or server.hostname or identity.get("hostname") or f"iLO-{serial_number}"
+        server.bmc_ip = bmc_ip
+        server.management_config_json = current
+        server.status = "online"
+        server.last_seen = now
+
+    db.commit()
+    db.refresh(server)
+    refresh_inventory_best_effort(server, db)
+    db.refresh(server)
+    all_servers = db.scalars(select(Server).options(selectinload(Server.inventories))).all()
+    conflicts = conflict_index(all_servers)
+    return server_to_read(server, conflicts.get(server.id, {}))
 
 
 @router.post("/bulk-delete", response_model=BulkDeleteResponse)

@@ -11,6 +11,7 @@ import type {
   IloUserActionPayload,
   InventoryRefreshResult,
   ManagementConfig,
+  ManualIloDiscoveryPayload,
   RaidApplyPayload,
   RaidClearConfigPayload,
   RaidDeleteVolumePayload,
@@ -66,6 +67,11 @@ export async function fetchServer(serverId: string): Promise<ServerDetail> {
 
 export async function updateServer(serverId: number, payload: ServerUpdate): Promise<ServerSummary> {
   const response = await api.patch<ServerSummary>(`/api/v1/servers/${serverId}`, payload);
+  return response.data;
+}
+
+export async function discoverIloServer(payload: ManualIloDiscoveryPayload): Promise<ServerSummary> {
+  const response = await api.post<ServerSummary>('/api/v1/servers/discover/ilo', payload);
   return response.data;
 }
 

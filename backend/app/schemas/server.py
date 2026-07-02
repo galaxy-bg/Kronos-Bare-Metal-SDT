@@ -53,6 +53,13 @@ class ServerUpdate(BaseModel):
     status: str | None = None
 
 
+class ManualIloDiscoveryRequest(BaseModel):
+    bmc_ip: str = Field(min_length=1, max_length=64)
+    username: str = Field(default="Administrator", min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+    hostname: str | None = Field(default=None, max_length=255)
+
+
 class BulkDeleteRequest(BaseModel):
     server_ids: list[int] = Field(min_length=1, max_length=200)
 
