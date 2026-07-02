@@ -60,6 +60,14 @@ export type ManagementConfig = {
     status?: string | null;
     registered_at?: string | null;
   } | null;
+  os_management?: {
+    type?: string | null;
+    ip?: string | null;
+    username?: string | null;
+    password?: string | null;
+    source?: string | null;
+    updated_at?: string | null;
+  } | null;
 };
 
 export type IloUserActionPayload = {
@@ -80,6 +88,10 @@ export type ManualIloDiscoveryPayload = {
   username: string;
   password: string;
   hostname?: string | null;
+  os_type?: string | null;
+  os_management_ip?: string | null;
+  os_username?: string | null;
+  os_password?: string | null;
 };
 
 export type ServerAction = {

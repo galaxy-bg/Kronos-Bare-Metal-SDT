@@ -137,6 +137,13 @@ function agentVersionLabel(server: ServerSummary) {
   return agent.build ? `${agent.version} (${agent.build})` : agent.version;
 }
 
+function osManagementLabel(server: ServerSummary) {
+  const osManagement = server.management_config_json?.os_management;
+  if (!osManagement?.ip) return null;
+  const type = osManagement.type ? String(osManagement.type).toUpperCase() : 'OS';
+  return `${type} ${osManagement.ip}`;
+}
+
 function vendorLabel(vendor?: string | null) {
   if (!vendor) return '-';
   const normalized = vendor.toLowerCase();
@@ -522,6 +529,10 @@ export function DashboardPage() {
     username: 'Administrator',
     password: '',
     hostname: '',
+    osType: 'esxi',
+    osManagementIp: '',
+    osUsername: 'root',
+    osPassword: '',
   });
   const [showIloPassword, setShowIloPassword] = useState(false);
   const [showIloConfirmPassword, setShowIloConfirmPassword] = useState(false);
@@ -529,6 +540,7 @@ export function DashboardPage() {
   const [showLicenseAdminPassword, setShowLicenseAdminPassword] = useState(false);
   const [showNetworkAdminPassword, setShowNetworkAdminPassword] = useState(false);
   const [showDiscoveryPassword, setShowDiscoveryPassword] = useState(false);
+  const [showDiscoveryOsPassword, setShowDiscoveryOsPassword] = useState(false);
   const [form, setForm] = useState<ServerUpdate>({});
   const [saving, setSaving] = useState(false);
   const [refreshingInventoryId, setRefreshingInventoryId] = useState<number | null>(null);
@@ -704,8 +716,9 @@ export function DashboardPage() {
   }
 
   function openIloDiscovery() {
-    setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '' });
+    setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '', osType: 'esxi', osManagementIp: '', osUsername: 'root', osPassword: '' });
     setShowDiscoveryPassword(false);
+    setShowDiscoveryOsPassword(false);
     setIloDiscoveryOpen(true);
   }
 
@@ -748,8 +761,9 @@ export function DashboardPage() {
 
   function closeIloDiscovery() {
     setIloDiscoveryOpen(false);
-    setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '' });
+    setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '', osType: 'esxi', osManagementIp: '', osUsername: 'root', osPassword: '' });
     setShowDiscoveryPassword(false);
+    setShowDiscoveryOsPassword(false);
   }
 
   function closeEnrollment() {
@@ -875,6 +889,10 @@ export function DashboardPage() {
         username,
         password,
         hostname: iloDiscoveryForm.hostname.trim() || null,
+        os_type: iloDiscoveryForm.osType.trim() || null,
+        os_management_ip: iloDiscoveryForm.osManagementIp.trim() || null,
+        os_username: iloDiscoveryForm.osUsername.trim() || null,
+        os_password: iloDiscoveryForm.osPassword.trim() || null,
       });
       await load();
       closeIloDiscovery();
@@ -1340,6 +1358,9 @@ export function DashboardPage() {
                           sx={{ fontWeight: 800 }}
                         />
                       </Tooltip>
+                      {osManagementLabel(server) && (
+                        <Chip size="small" label={osManagementLabel(server)} variant="outlined" sx={{ fontWeight: 800 }} />
+                      )}
                     </Stack>
                   </TableCell>
                   <TableCell>
@@ -1656,6 +1677,62 @@ export function DashboardPage() {
                         <Tooltip title={showDiscoveryPassword ? 'Hide password' : 'Show password'} arrow>
                           <IconButton size="small" onClick={() => setShowDiscoveryPassword((current) => !current)} edge="end">
                             {showDiscoveryPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            </Grid>
+            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+              OS Management
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  select
+                  fullWidth
+                  label="OS Type"
+                  value={iloDiscoveryForm.osType}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, osType: event.target.value })}
+                >
+                  <MenuItem value="esxi">ESXi</MenuItem>
+                  <MenuItem value="linux">Linux</MenuItem>
+                  <MenuItem value="windows">Windows</MenuItem>
+                  <MenuItem value="unknown">Unknown</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="OS Management IP"
+                  placeholder="192.168.88.127"
+                  value={iloDiscoveryForm.osManagementIp}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, osManagementIp: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="OS Username"
+                  value={iloDiscoveryForm.osUsername}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, osUsername: event.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="OS Password"
+                  type={showDiscoveryOsPassword ? 'text' : 'password'}
+                  value={iloDiscoveryForm.osPassword}
+                  onChange={(event) => setIloDiscoveryForm({ ...iloDiscoveryForm, osPassword: event.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title={showDiscoveryOsPassword ? 'Hide password' : 'Show password'} arrow>
+                          <IconButton size="small" onClick={() => setShowDiscoveryOsPassword((current) => !current)} edge="end">
+                            {showDiscoveryOsPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
                       </InputAdornment>

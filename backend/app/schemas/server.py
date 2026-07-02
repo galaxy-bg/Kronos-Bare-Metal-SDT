@@ -58,6 +58,10 @@ class ManualIloDiscoveryRequest(BaseModel):
     username: str = Field(default="Administrator", min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
     hostname: str | None = Field(default=None, max_length=255)
+    os_type: str | None = Field(default=None, max_length=64)
+    os_management_ip: str | None = Field(default=None, max_length=64)
+    os_username: str | None = Field(default=None, max_length=64)
+    os_password: str | None = Field(default=None, max_length=128)
 
 
 class BulkDeleteRequest(BaseModel):

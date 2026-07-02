@@ -569,6 +569,16 @@ def discover_server_by_ilo(payload: ManualIloDiscoveryRequest, db: Session = Dep
                 "discovered_at": now.isoformat(),
                 "bmc_ip": bmc_ip,
             },
+            "os_management": compact_dict(
+                {
+                    "type": payload.os_type.strip() if payload.os_type else None,
+                    "ip": payload.os_management_ip.strip() if payload.os_management_ip else None,
+                    "username": payload.os_username.strip() if payload.os_username else None,
+                    "password": payload.os_password.strip() if payload.os_password else None,
+                    "source": "manual-entry" if payload.os_management_ip else None,
+                    "updated_at": now.isoformat() if payload.os_management_ip else None,
+                }
+            ) or None,
             "credential": {
                 "username": credential.username,
                 "password": credential.password,
