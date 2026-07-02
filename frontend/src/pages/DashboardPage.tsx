@@ -157,8 +157,8 @@ function vendorLabel(vendor?: string | null) {
 
 function discoveryLabel(server: ServerSummary) {
   const discovery = server.management_config_json?.discovery;
-  if (discovery?.source === 'manual_ilo') return 'Manual iLO';
-  if (server.management_config_json?.registration?.status) return 'Agent';
+  if (discovery?.source === 'manual_ilo') return 'Discovered by iLO';
+  if (server.management_config_json?.registration?.status) return 'Discovered by Agent';
   return null;
 }
 
