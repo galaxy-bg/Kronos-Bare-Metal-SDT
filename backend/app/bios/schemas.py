@@ -11,6 +11,7 @@ class BIOSProfileCreate(BaseModel):
     vendor: str = Field(default="hpe", min_length=1, max_length=64)
     server_model: str | None = Field(default=None, max_length=255)
     server_generation: str | None = Field(default=None, max_length=128)
+    source_server_id: int | None = None
     base_workload_profile: str | None = Field(default=None, max_length=128)
     raw_attributes: dict[str, Any] = Field(default_factory=dict)
     normalized_attributes: dict[str, Any] = Field(default_factory=dict)
@@ -64,6 +65,7 @@ class BIOSProfileCompareRequest(BaseModel):
 class BIOSProfileApplyRequest(BaseModel):
     target_server_id: int
     dry_run: bool = True
+    post_reboot: bool = False
     confirmation: str = Field(default="confirm", min_length=1, max_length=32)
 
     @field_validator("confirmation")
@@ -94,6 +96,12 @@ class BIOSProfileRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BIOSProfileValidateRequest(BaseModel):
+    target_server_id: int
+    base_workload_profile: str | None = Field(default=None, max_length=128)
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
 
 class BIOSProfileApplyJobRead(BaseModel):

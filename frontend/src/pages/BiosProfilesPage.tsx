@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
@@ -10,6 +11,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
   MenuItem,
@@ -37,6 +39,7 @@ import {
   applyBIOSProfileDryRun,
   cloneBIOSProfileFromServer,
   compareBIOSProfile,
+  createBIOSProfile,
   deleteBIOSProfile,
   deployBIOSProfile,
   fetchBIOSProfiles,
@@ -44,8 +47,9 @@ import {
   fetchGlobalSettings,
   fetchServers,
   updateBIOSProfile,
+  validateBIOSProfileAttributes,
 } from '../api/client';
-import type { BIOSCompareResult, BIOSProfile, BIOSWorkloadOptions, GlobalSettings, ServerSummary } from '../types';
+import type { BIOSCompareResult, BIOSProfile, BIOSProfileValidationResult, BIOSWorkloadOptions, GlobalSettings, ServerSummary } from '../types';
 
 type EditState = {
   profile: BIOSProfile;
@@ -53,6 +57,10 @@ type EditState = {
   workload: string;
   overridesJson: string;
 };
+
+const emptyAttributesText = `{
+  "PowerRegulator": "OsControl"
+}`;
 
 function valueLabel(value: unknown) {
   if (value === null || value === undefined || value === '') return '-';
@@ -70,6 +78,45 @@ function downloadProfile(profile: BIOSProfile) {
   URL.revokeObjectURL(url);
 }
 
+function parseScalar(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (trimmed === 'null') return null;
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  const numeric = Number(trimmed);
+  if (!Number.isNaN(numeric) && trimmed !== '') return numeric;
+  return trimmed;
+}
+
+function parseAttributes(text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  if (!trimmed) return {};
+  if (trimmed.startsWith('{')) return JSON.parse(trimmed) as Record<string, unknown>;
+
+  const result: Record<string, unknown> = {};
+  trimmed.split('\n').forEach((line) => {
+    const clean = line.trim();
+    if (!clean || clean.startsWith('#')) return;
+    const separator = clean.indexOf(':');
+    if (separator <= 0) throw new Error(`Invalid attribute line: ${line}`);
+    const key = clean.slice(0, separator).trim();
+    result[key] = parseScalar(clean.slice(separator + 1));
+  });
+  return result;
+}
+
+function validationSummary(result: BIOSProfileValidationResult | null) {
+  if (!result) return null;
+  const unsupported = Object.keys(result.unsupported || {}).length;
+  const invalid = Object.keys(result.invalid_values || {}).length;
+  if (result.valid) return `Valid: ${result.checked_count} BIOS attributes checked.`;
+  return `Invalid: ${unsupported} unsupported, ${invalid} invalid values.`;
+}
+
 export function BiosProfilesPage() {
   const [profiles, setProfiles] = useState<BIOSProfile[]>([]);
   const [servers, setServers] = useState<ServerSummary[]>([]);
@@ -78,9 +125,15 @@ export function BiosProfilesPage() {
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [profileName, setProfileName] = useState('');
   const [cloneWorkload, setCloneWorkload] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [customWorkload, setCustomWorkload] = useState('');
+  const [customAttributesText, setCustomAttributesText] = useState(emptyAttributesText);
+  const [customValidation, setCustomValidation] = useState<BIOSProfileValidationResult | null>(null);
   const [workloadOptions, setWorkloadOptions] = useState<BIOSWorkloadOptions | null>(null);
   const [compareResult, setCompareResult] = useState<BIOSCompareResult | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
+  const [editValidation, setEditValidation] = useState<BIOSProfileValidationResult | null>(null);
+  const [deployPostReboot, setDeployPostReboot] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -138,6 +191,9 @@ export function BiosProfilesPage() {
       .then((result) => {
         setWorkloadOptions(result);
         setCloneWorkload(result.current || '');
+        setCustomWorkload(result.current || '');
+        setCustomValidation(null);
+        setEditValidation(null);
       })
       .catch(() => setWorkloadOptions(null));
   }, [selectedServerId]);
@@ -160,6 +216,52 @@ export function BiosProfilesPage() {
       setMessage(`BIOS profile cloned from ${selectedServer?.serial_number ?? 'server'}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Clone failed.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleValidateCustom() {
+    if (!selectedServerId) return;
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const attributes = parseAttributes(customAttributesText);
+      const result = await validateBIOSProfileAttributes(Number(selectedServerId), attributes, customWorkload.trim() || null);
+      setCustomValidation(result);
+      setMessage(validationSummary(result));
+    } catch (err) {
+      setCustomValidation(null);
+      setError(err instanceof Error ? err.message : 'BIOS profile validation failed.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateCustom() {
+    if (!customName.trim() || !customValidation?.valid) return;
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const attributes = parseAttributes(customAttributesText);
+      const profile = await createBIOSProfile({
+        name: customName.trim(),
+        vendor: 'hpe',
+        source_type: 'custom',
+        source_server_id: selectedServerId ? Number(selectedServerId) : null,
+        base_workload_profile: customWorkload.trim() || null,
+        normalized_attributes: {},
+        custom_overrides: attributes,
+      });
+      setProfiles((current) => [profile, ...current.filter((item) => item.id !== profile.id)]);
+      setSelectedProfileId(String(profile.id));
+      setCustomName('');
+      setCustomValidation(null);
+      setMessage('Custom BIOS profile created.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Custom BIOS profile could not be created.');
     } finally {
       setLoading(false);
     }
@@ -208,7 +310,7 @@ export function BiosProfilesPage() {
     setError(null);
     setMessage(null);
     try {
-      const job = await deployBIOSProfile(Number(selectedProfileId), Number(selectedServerId));
+      const job = await deployBIOSProfile(Number(selectedProfileId), Number(selectedServerId), deployPostReboot);
       setCompareResult({
         profile_id: job.profile_id,
         target_server_id: job.target_server_id,
@@ -220,7 +322,7 @@ export function BiosProfilesPage() {
       } else {
         setMessage(
           job.pending_reboot
-            ? `Deploy job #${job.id} submitted. BIOS changes are pending reboot; reboot was not triggered.`
+            ? `Deploy job #${job.id} submitted. BIOS changes are pending reboot${deployPostReboot ? '; reboot task was planned.' : '; reboot was not triggered.'}`
             : `Deploy job #${job.id} completed.`,
         );
       }
@@ -257,7 +359,7 @@ export function BiosProfilesPage() {
     setError(null);
     setMessage(null);
     try {
-      const overrides = editState.overridesJson.trim() ? JSON.parse(editState.overridesJson) : {};
+      const overrides = parseAttributes(editState.overridesJson);
       const updated = await updateBIOSProfile(editState.profile.id, {
         name: editState.name.trim(),
         base_workload_profile: editState.workload.trim() || null,
@@ -269,6 +371,24 @@ export function BiosProfilesPage() {
       setMessage('BIOS profile saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Profile could not be saved. Check override JSON.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleValidateEdit() {
+    if (!editState || !selectedServerId) return;
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const overrides = parseAttributes(editState.overridesJson);
+      const result = await validateBIOSProfileAttributes(Number(selectedServerId), overrides, editState.workload.trim() || null);
+      setEditValidation(result);
+      setMessage(validationSummary(result));
+    } catch (err) {
+      setEditValidation(null);
+      setError(err instanceof Error ? err.message : 'BIOS profile validation failed.');
     } finally {
       setLoading(false);
     }
@@ -351,6 +471,72 @@ export function BiosProfilesPage() {
         </Stack>
       </Paper>
 
+      <Paper variant="outlined" sx={{ p: 2.5 }}>
+        <Stack spacing={2}>
+          <Typography variant="h6" sx={{ fontWeight: 900 }}>
+            Custom Profile
+          </Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+            <TextField
+              size="small"
+              label="Profile Name"
+              value={customName}
+              onChange={(event) => setCustomName(event.target.value)}
+              placeholder="Virtualization custom BIOS"
+              sx={{ flex: '1 1 260px', minWidth: { xs: '100%', md: 260 } }}
+            />
+            <FormControl size="small" sx={{ flex: '1 1 280px', minWidth: { xs: '100%', md: 280 } }}>
+              <InputLabel>HPE Workload Profile</InputLabel>
+              <Select
+                label="HPE Workload Profile"
+                value={customWorkload}
+                onChange={(event) => {
+                  setCustomWorkload(event.target.value);
+                  setCustomValidation(null);
+                }}
+              >
+                <MenuItem value="">No workload profile</MenuItem>
+                {customWorkload && !workloadOptions?.options.includes(customWorkload) && (
+                  <MenuItem value={customWorkload}>{customWorkload}</MenuItem>
+                )}
+                {(workloadOptions?.options || []).map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {workloadOptions?.display_names?.[option] || option}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
+          <TextField
+            label="Attributes JSON or key: value"
+            value={customAttributesText}
+            onChange={(event) => {
+              setCustomAttributesText(event.target.value);
+              setCustomValidation(null);
+            }}
+            multiline
+            minRows={7}
+            helperText="Manual changes are validated against the selected server BIOS registry before save."
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+            <Button variant="outlined" onClick={handleValidateCustom} disabled={loading || !selectedServerId}>
+              Validate
+            </Button>
+            <Button variant="contained" onClick={handleCreateCustom} disabled={loading || !customName.trim() || !customValidation?.valid}>
+              Save Custom
+            </Button>
+            {customValidation && (
+              <Chip
+                size="small"
+                color={customValidation.valid ? 'success' : 'error'}
+                label={validationSummary(customValidation)}
+                sx={{ maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 } }}
+              />
+            )}
+          </Stack>
+        </Stack>
+      </Paper>
+
       <Paper variant="outlined">
         <Box sx={{ p: 2.5 }}>
           <Typography variant="h6" sx={{ fontWeight: 900 }}>
@@ -391,14 +577,15 @@ export function BiosProfilesPage() {
                   <Tooltip title="Edit profile">
                     <IconButton
                       size="small"
-                      onClick={() =>
+                      onClick={() => {
+                        setEditValidation(null);
                         setEditState({
                           profile,
                           name: profile.name,
                           workload: profile.base_workload_profile || '',
                           overridesJson: JSON.stringify(profile.custom_overrides || {}, null, 2),
-                        })
-                      }
+                        });
+                      }}
                     >
                       <EditIcon fontSize="small" />
                     </IconButton>
@@ -488,9 +675,13 @@ export function BiosProfilesPage() {
               </Tooltip>
             </Stack>
           </Stack>
+          <FormControlLabel
+            control={<Checkbox checked={deployPostReboot} onChange={(event) => setDeployPostReboot(event.target.checked)} />}
+            label="Create post-deploy reboot task when BIOS changes require reboot"
+          />
           <Alert severity={deployBlockedReason ? 'warning' : 'info'}>
             {deployBlockedReason ||
-              'Deploy writes only changed BIOS attributes through Redfish. Reboot is not automatic; changed BIOS settings remain pending until reboot.'}
+              'Deploy writes only changed BIOS attributes through Redfish. Reboot is not automatic unless the post-task reboot checkbox is selected; it still appears as a planned task first.'}
           </Alert>
           {selectedProfile && selectedServer && (
             <Typography variant="body2" color="text.secondary">
@@ -536,7 +727,15 @@ export function BiosProfilesPage() {
         </Stack>
       </Paper>
 
-      <Dialog open={Boolean(editState)} onClose={() => setEditState(null)} maxWidth="md" fullWidth>
+      <Dialog
+        open={Boolean(editState)}
+        onClose={() => {
+          setEditState(null);
+          setEditValidation(null);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle>Edit BIOS Profile</DialogTitle>
         {editState && (
           <DialogContent>
@@ -551,8 +750,12 @@ export function BiosProfilesPage() {
                 <Select
                   label="HPE Workload Profile"
                   value={editState.workload}
-                  onChange={(event) => setEditState({ ...editState, workload: event.target.value })}
+                  onChange={(event) => {
+                    setEditValidation(null);
+                    setEditState({ ...editState, workload: event.target.value });
+                  }}
                 >
+                  <MenuItem value="">No workload profile</MenuItem>
                   {editState.workload && !workloadOptions?.options.includes(editState.workload) && (
                     <MenuItem value={editState.workload}>{editState.workload}</MenuItem>
                   )}
@@ -569,17 +772,35 @@ export function BiosProfilesPage() {
               <TextField
                 label="Custom Overrides JSON"
                 value={editState.overridesJson}
-                onChange={(event) => setEditState({ ...editState, overridesJson: event.target.value })}
+                onChange={(event) => {
+                  setEditValidation(null);
+                  setEditState({ ...editState, overridesJson: event.target.value });
+                }}
                 multiline
                 minRows={8}
-                helperText='Example: {"PowerRegulator":"StaticHighPerf","ProcSMT":"Enabled"}'
+                helperText='JSON or key: value. Example: {"PowerRegulator":"StaticHighPerf","ProcSMT":"Enabled"}'
               />
+              {editValidation && (
+                <Alert severity={editValidation.valid ? 'success' : 'error'}>
+                  {validationSummary(editValidation)}
+                </Alert>
+              )}
             </Stack>
           </DialogContent>
         )}
         <DialogActions>
-          <Button onClick={() => setEditState(null)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSaveEdit} disabled={loading || !editState?.name.trim()}>
+          <Button
+            onClick={() => {
+              setEditState(null);
+              setEditValidation(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button variant="outlined" onClick={handleValidateEdit} disabled={loading || !editState || !selectedServerId}>
+            Validate
+          </Button>
+          <Button variant="contained" onClick={handleSaveEdit} disabled={loading || !editState?.name.trim() || editValidation?.valid === false}>
             Save
           </Button>
         </DialogActions>

@@ -5,6 +5,8 @@ import type {
   BIOSCloneFromServerPayload,
   BIOSCompareResult,
   BIOSProfile,
+  BIOSProfileCreatePayload,
+  BIOSProfileValidationResult,
   BIOSWorkloadOptions,
   DashboardStats,
   GlobalSettings,
@@ -150,6 +152,11 @@ export async function executeStorageApplyAction(actionId: number): Promise<Serve
   return response.data;
 }
 
+export async function executeBiosRebootAction(actionId: number): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/actions/${actionId}/execute-bios-reboot`);
+  return response.data;
+}
+
 export async function deleteServer(serverId: number): Promise<void> {
   await api.delete(`/api/v1/servers/${serverId}`);
 }
@@ -166,6 +173,11 @@ export async function bulkDeleteServers(serverIds: number[]): Promise<BulkDelete
 
 export async function fetchBIOSProfiles(): Promise<BIOSProfile[]> {
   const response = await api.get<BIOSProfile[]>('/api/v1/bios/profiles');
+  return response.data;
+}
+
+export async function createBIOSProfile(payload: BIOSProfileCreatePayload): Promise<BIOSProfile> {
+  const response = await api.post<BIOSProfile>('/api/v1/bios/profiles', payload);
   return response.data;
 }
 
@@ -195,6 +207,19 @@ export async function compareBIOSProfile(profileId: number, targetServerId: numb
   return response.data;
 }
 
+export async function validateBIOSProfileAttributes(
+  targetServerId: number,
+  attributes: Record<string, unknown>,
+  baseWorkloadProfile?: string | null,
+): Promise<BIOSProfileValidationResult> {
+  const response = await api.post<BIOSProfileValidationResult>('/api/v1/bios/profiles/validate', {
+    target_server_id: targetServerId,
+    base_workload_profile: baseWorkloadProfile || null,
+    attributes,
+  });
+  return response.data;
+}
+
 export async function applyBIOSProfileDryRun(profileId: number, targetServerId: number): Promise<BIOSApplyJob> {
   const response = await api.post<BIOSApplyJob>(`/api/v1/bios/profiles/${profileId}/apply`, {
     target_server_id: targetServerId,
@@ -204,10 +229,11 @@ export async function applyBIOSProfileDryRun(profileId: number, targetServerId: 
   return response.data;
 }
 
-export async function deployBIOSProfile(profileId: number, targetServerId: number): Promise<BIOSApplyJob> {
+export async function deployBIOSProfile(profileId: number, targetServerId: number, postReboot = false): Promise<BIOSApplyJob> {
   const response = await api.post<BIOSApplyJob>(`/api/v1/bios/profiles/${profileId}/apply`, {
     target_server_id: targetServerId,
     dry_run: false,
+    post_reboot: postReboot,
     confirmation: 'confirm',
   });
   return response.data;

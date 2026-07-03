@@ -13,6 +13,7 @@ from app.bios.schemas import (
     BIOSProfileCreate,
     BIOSProfileRead,
     BIOSProfileUpdate,
+    BIOSProfileValidateRequest,
 )
 from app.bios.service import BIOSProfileService
 from app.db.session import get_db
@@ -28,6 +29,11 @@ def list_bios_profiles(db: Session = Depends(get_db)):
 @router.post("/profiles", response_model=BIOSProfileRead, status_code=status.HTTP_201_CREATED)
 def create_bios_profile(payload: BIOSProfileCreate, db: Session = Depends(get_db)):
     return BIOSProfileService(db).create_custom_profile(payload)
+
+
+@router.post("/profiles/validate")
+def validate_bios_profile(payload: BIOSProfileValidateRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return BIOSProfileService(db).validate_attributes(payload.target_server_id, payload.attributes, payload.base_workload_profile)
 
 
 @router.post("/profiles/clone-from-server", response_model=BIOSProfileRead, status_code=status.HTTP_201_CREATED)
@@ -68,7 +74,7 @@ def compare_bios_profile(profile_id: int, payload: BIOSProfileCompareRequest, db
 
 @router.post("/profiles/{profile_id}/apply", response_model=BIOSProfileApplyJobRead, status_code=status.HTTP_201_CREATED)
 def apply_bios_profile(profile_id: int, payload: BIOSProfileApplyRequest, db: Session = Depends(get_db)):
-    return BIOSProfileService(db).apply_profile(profile_id, payload.target_server_id, payload.dry_run)
+    return BIOSProfileService(db).apply_profile(profile_id, payload.target_server_id, payload.dry_run, payload.post_reboot)
 
 
 @router.post("/profiles/{profile_id}/verify")

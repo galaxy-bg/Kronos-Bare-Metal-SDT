@@ -698,5 +698,31 @@ class HpeIloAdapter(BaseVendorAdapter):
         return {"vendor": self.vendor, "implemented": False, "message": "Power actions will be queued in Phase-2."}
 
     def reboot(self) -> dict[str, Any]:
-        # TODO: OS deployment.
-        return {"vendor": self.vendor, "implemented": False, "message": "Reboot actions will be queued in Phase-2."}
+        system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
+        system = self._get(system_path)
+        actions = system.get("Actions") if isinstance(system.get("Actions"), dict) else {}
+        reset = actions.get("#ComputerSystem.Reset") if isinstance(actions, dict) else None
+        target = reset.get("target") if isinstance(reset, dict) else None
+        if not target:
+            raise RedfishError("ComputerSystem.Reset action was not found for this HPE server.")
+
+        allowable = reset.get("ResetType@Redfish.AllowableValues") if isinstance(reset, dict) else []
+        reset_type = "GracefulRestart"
+        if isinstance(allowable, list) and allowable:
+            if "GracefulRestart" in allowable:
+                reset_type = "GracefulRestart"
+            elif "ForceRestart" in allowable:
+                reset_type = "ForceRestart"
+            else:
+                reset_type = str(allowable[0])
+
+        payload = {"ResetType": reset_type}
+        return {
+            "vendor": self.vendor,
+            "implemented": True,
+            "system_path": system_path,
+            "action": str(target),
+            "payload": payload,
+            "result": self._post(str(target), payload),
+            "message": f"Server reboot submitted through Redfish ({reset_type}).",
+        }

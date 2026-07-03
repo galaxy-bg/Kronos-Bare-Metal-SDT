@@ -1006,6 +1006,48 @@ def execute_storage_apply_action(action_id: int, db: Session = Depends(get_db)) 
     return action_to_read(action)
 
 
+@router.post("/actions/{action_id}/execute-bios-reboot", response_model=ServerActionRead)
+def execute_bios_reboot_action(action_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    action = db.get(ServerAction, action_id)
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
+    if action.action_type != "bios_reboot_after_apply":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Action is not a BIOS reboot task.")
+    if action.status != "planned":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only planned BIOS reboot tasks can be executed.")
+
+    server = db.get(Server, action.server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+    adapter = AdapterService().build_for_server(server)
+    if not server.bmc_ip:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="BMC/iLO IP is not configured.")
+    if not adapter.context.credential:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Validated iLO credential is required.")
+
+    action.status = "running"
+    action.started_at = datetime.now(UTC)
+    db.commit()
+
+    try:
+        result = adapter.reboot()
+    except Exception as exc:
+        action.status = "failed"
+        action.error_message = str(exc)
+        action.result_json = {"message": "BIOS post-apply reboot failed."}
+        action.completed_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(action)
+        return action_to_read(action)
+
+    action.status = "succeeded"
+    action.result_json = result
+    action.completed_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
+
+
 @router.post("/{server_id}/deregister", response_model=ServerRead)
 def deregister_server(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     server = db.get(Server, server_id)

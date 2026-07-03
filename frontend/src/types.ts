@@ -265,6 +265,29 @@ export type BIOSCloneFromServerPayload = {
   base_workload_profile?: string | null;
 };
 
+export type BIOSProfileCreatePayload = {
+  name: string;
+  vendor?: string;
+  server_model?: string | null;
+  server_generation?: string | null;
+  source_type?: string;
+  source_server_id?: number | null;
+  base_workload_profile?: string | null;
+  raw_attributes?: Record<string, unknown>;
+  normalized_attributes?: Record<string, unknown>;
+  custom_overrides?: Record<string, unknown>;
+  metadata_json?: Record<string, unknown>;
+  export_format?: string;
+};
+
+export type BIOSProfileValidationResult = {
+  valid: boolean;
+  target_server_id: number;
+  checked_count: number;
+  unsupported: Record<string, unknown>;
+  invalid_values: Record<string, { value: unknown; allowed_values: string[] }>;
+};
+
 export type BIOSCompareResult = {
   profile_id: number;
   target_server_id: number;

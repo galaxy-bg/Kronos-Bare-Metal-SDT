@@ -23,7 +23,7 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Link as RouterLink } from 'react-router-dom';
-import { executeStorageApplyAction, fetchGlobalSettings, fetchRecentActions, fetchServers } from '../api/client';
+import { executeBiosRebootAction, executeStorageApplyAction, fetchGlobalSettings, fetchRecentActions, fetchServers } from '../api/client';
 import type { GlobalSettings, ServerAction, ServerSummary } from '../types';
 
 const fallbackSettings: GlobalSettings['task_footer'] = {
@@ -51,6 +51,16 @@ function actionLabel(actionType: string) {
     validate_os_storage: 'Validate OS Storage',
     hpe_refresh_storage_inventory: 'HPE Storage Inventory',
     hpe_storage_apply_plan: 'Storage Apply Plan',
+    bios_profile_clone: 'BIOS Profile Clone',
+    bios_profile_custom_create: 'BIOS Profile Create',
+    bios_profile_update: 'BIOS Profile Update',
+    bios_profile_delete: 'BIOS Profile Delete',
+    bios_profile_compare: 'BIOS Profile Compare',
+    bios_profile_validate: 'BIOS Profile Validate',
+    bios_profile_dry_run: 'BIOS Profile Dry Run',
+    bios_profile_deploy: 'BIOS Profile Deploy',
+    bios_profile_verify: 'BIOS Profile Verify',
+    bios_reboot_after_apply: 'BIOS Reboot',
   };
   return labels[actionType] ?? actionType.split('_').join(' ');
 }
@@ -65,6 +75,9 @@ function actionResultText(action: ServerAction) {
       : null;
   const toolAvailable = typeof result.tool_available === 'boolean' ? result.tool_available : null;
   if (action.error_message) return action.error_message;
+  if (typeof result.message === 'string') return result.message;
+  if (typeof result.changed_count === 'number') return `${result.changed_count} changed / ${String(result.unsupported_count ?? 0)} unsupported`;
+  if (typeof result.checked_count === 'number') return `${result.valid ? 'Valid' : 'Invalid'} / ${result.checked_count} checked`;
   if (diskCount !== null) return `OS disks: ${diskCount}${toolAvailable === false ? ' / ssacli missing' : ''}`;
   if (action.status === 'succeeded') return 'Completed successfully';
   return '-';
@@ -132,6 +145,16 @@ export function TaskFooter() {
     }
   }
 
+  async function executeBiosReboot(action: ServerAction) {
+    setExecutingActionId(action.id);
+    try {
+      await executeBiosRebootAction(action.id);
+      await refresh();
+    } finally {
+      setExecutingActionId(null);
+    }
+  }
+
   useEffect(() => {
     refresh().catch(() => undefined);
   }, []);
@@ -162,7 +185,7 @@ export function TaskFooter() {
       <Box sx={{ px: { xs: 1.5, md: 3 }, py: 1 }}>
         <Stack direction="row" alignItems="center" spacing={1.25}>
           <PendingActionsIcon fontSize="small" sx={{ color: 'primary.main' }} />
-          <Typography sx={{ fontWeight: 900 }}>Tasks</Typography>
+          <Typography sx={{ fontWeight: 900 }}>Tasks & Jobs</Typography>
           <Chip size="small" label={`${activeCount} active`} sx={{ bgcolor: activeCount ? '#fff8df' : '#f3f5f5', color: activeCount ? '#75611d' : '#62666f' }} />
           {actions[0] && (
             <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', md: 'block' }, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -225,6 +248,11 @@ export function TaskFooter() {
                           {executingActionId === action.id ? 'Running...' : 'Execute'}
                         </Button>
                       )}
+                      {action.action_type === 'bios_reboot_after_apply' && action.status === 'planned' && (
+                        <Button size="small" variant="contained" color="warning" onClick={() => executeBiosReboot(action)} disabled={executingActionId === action.id}>
+                          {executingActionId === action.id ? 'Running...' : 'Reboot'}
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -232,7 +260,7 @@ export function TaskFooter() {
               {actions.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7}>
-                    <Typography sx={{ py: 2, textAlign: 'center' }} color="text.secondary">No queued actions yet.</Typography>
+                    <Typography sx={{ py: 2, textAlign: 'center' }} color="text.secondary">No queued tasks or jobs yet.</Typography>
                   </TableCell>
                 </TableRow>
               )}
