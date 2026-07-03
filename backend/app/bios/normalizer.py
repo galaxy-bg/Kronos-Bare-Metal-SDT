@@ -111,16 +111,27 @@ def workload_options(bios_payload: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_bios_config(bios_payload)
     registry = normalized.get("registry_attributes", {})
     workload = registry.get("WorkloadProfile") if isinstance(registry, dict) else None
-    allowable = []
+    allowable: list[str] = []
+    display_names: dict[str, str] = {}
     if isinstance(workload, dict):
-        allowable = workload.get("Value") or workload.get("AllowableValues") or []
-    if not isinstance(allowable, list):
-        allowable = []
+        values = workload.get("Value") or workload.get("AllowableValues") or []
+        if isinstance(values, list):
+            for item in values:
+                if isinstance(item, dict):
+                    value_name = item.get("ValueName") or item.get("Value")
+                    if value_name:
+                        allowable.append(str(value_name))
+                        if item.get("ValueDisplayName"):
+                            display_names[str(value_name)] = str(item["ValueDisplayName"])
+                    continue
+                if item is not None:
+                    allowable.append(str(item))
     return {
         "supported": bool(allowable or normalized.get("workload_profile") is not None),
         "attribute": "WorkloadProfile",
         "current": normalized.get("workload_profile"),
         "options": allowable,
+        "display_names": display_names,
     }
 
 

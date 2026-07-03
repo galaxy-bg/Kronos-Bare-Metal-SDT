@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import json
 import ssl
 from typing import Any
@@ -29,6 +30,12 @@ def basic_auth_header(username: str, password: str) -> str:
     return f"Basic {token}"
 
 
+def decode_redfish_body(body: bytes) -> str:
+    if body.startswith(b"\x1f\x8b"):
+        body = gzip.decompress(body)
+    return body.decode("utf-8")
+
+
 def redfish_get_json(
     base_url: str,
     path: str,
@@ -43,7 +50,7 @@ def redfish_get_json(
     context = None if verify_tls else ssl._create_unverified_context()
     try:
         with urlopen(request, timeout=timeout, context=context) as response:
-            body = response.read().decode("utf-8")
+            body = decode_redfish_body(response.read())
     except (HTTPError, URLError, TimeoutError) as exc:
         raise RedfishError(redfish_error_message(exc)) from exc
     try:
@@ -71,7 +78,7 @@ def redfish_patch_json(
     context = None if verify_tls else ssl._create_unverified_context()
     try:
         with urlopen(request, timeout=timeout, context=context) as response:
-            body = response.read().decode("utf-8")
+            body = decode_redfish_body(response.read())
     except (HTTPError, URLError, TimeoutError) as exc:
         raise RedfishError(redfish_error_message(exc)) from exc
     if not body:
@@ -101,7 +108,7 @@ def redfish_post_json(
     context = None if verify_tls else ssl._create_unverified_context()
     try:
         with urlopen(request, timeout=timeout, context=context) as response:
-            body = response.read().decode("utf-8")
+            body = decode_redfish_body(response.read())
             location = response.headers.get("Location")
             status = response.status
     except (HTTPError, URLError, TimeoutError) as exc:
@@ -135,7 +142,7 @@ def redfish_delete_json(
     context = None if verify_tls else ssl._create_unverified_context()
     try:
         with urlopen(request, timeout=timeout, context=context) as response:
-            body = response.read().decode("utf-8")
+            body = decode_redfish_body(response.read())
             status = response.status
     except (HTTPError, URLError, TimeoutError) as exc:
         raise RedfishError(redfish_error_message(exc)) from exc
