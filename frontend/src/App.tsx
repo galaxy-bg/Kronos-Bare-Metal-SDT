@@ -1,4 +1,5 @@
 import { AppBar, Box, Button, Container, Stack, Toolbar, Typography } from '@mui/material';
+import TuneIcon from '@mui/icons-material/Tune';
 import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
 import { Link as RouterLink, Outlet } from 'react-router-dom';
@@ -41,6 +42,9 @@ export default function App() {
             <Stack direction="row" spacing={1} sx={{ display: { xs: 'none', sm: 'flex' } }}>
               <Button component={RouterLink} to="/" startIcon={<StorageIcon />} variant="outlined" size="small">
                 Servers
+              </Button>
+              <Button component={RouterLink} to="/bios/profiles" startIcon={<TuneIcon />} variant="outlined" size="small">
+                BIOS Profiles
               </Button>
               <Button component={RouterLink} to="/setup" startIcon={<SettingsIcon />} variant="outlined" size="small">
                 Setup

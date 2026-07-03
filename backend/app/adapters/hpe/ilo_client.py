@@ -72,20 +72,34 @@ class HpeIloAdapter(BaseVendorAdapter):
         }
 
     def get_bios_config(self) -> dict[str, Any]:
-        systems = self._get("/redfish/v1/Systems/")
-        members = systems.get("Members") or []
-        system_path = "/redfish/v1/Systems/1/"
-        if members and isinstance(members[0], dict) and members[0].get("@odata.id"):
-            system_path = str(members[0]["@odata.id"])
+        system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
+        bios_path = system_path.rstrip("/") + "/Bios/"
+        bios = self._get(bios_path)
+        registry = self._read_bios_attribute_registry(bios)
         return {
             "vendor": self.vendor,
             "source": "hpe-redfish",
-            "bios": self._get(system_path.rstrip("/") + "/Bios/"),
+            "system_path": system_path,
+            "bios_path": bios_path,
+            "bios": bios,
+            "registry": registry,
         }
 
     def set_bios_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        # TODO: BIOS profile apply.
-        return {"vendor": self.vendor, "implemented": False, "message": "BIOS apply is planned for Phase-2."}
+        current = self.get_bios_config()
+        attributes = config.get("attributes") if isinstance(config.get("attributes"), dict) else config
+        settings_uri = self._bios_settings_uri(current.get("bios") if isinstance(current.get("bios"), dict) else {})
+        if not settings_uri:
+            raise RedfishError("Writable BIOS SettingsObject was not found in Redfish BIOS resource.")
+        payload = {"Attributes": attributes}
+        return {
+            "vendor": self.vendor,
+            "implemented": True,
+            "settings_uri": settings_uri,
+            "payload": payload,
+            "result": self._patch(settings_uri, payload),
+            "message": "BIOS settings update was submitted. Reboot is required for most BIOS changes.",
+        }
 
     def get_storage_inventory(self) -> dict[str, Any]:
         system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
@@ -365,6 +379,60 @@ class HpeIloAdapter(BaseVendorAdapter):
             return self._get(path)
         except RedfishError:
             return None
+
+    def _read_bios_attribute_registry(self, bios: dict[str, Any]) -> dict[str, Any]:
+        registry_name = bios.get("AttributeRegistry")
+        if not registry_name:
+            return {"available": False, "reason": "BIOS AttributeRegistry is not advertised."}
+
+        registry_path = f"/redfish/v1/Registries/{registry_name}/"
+        registry = self._safe_get(registry_path)
+        if registry:
+            location_uri = self._registry_location_uri(registry)
+            if location_uri:
+                registry_file = self._safe_get(location_uri)
+                if registry_file:
+                    return registry_file
+            return registry
+
+        registries = self._safe_get("/redfish/v1/Registries/")
+        if not registries:
+            return {"available": False, "registry": registry_name, "reason": "Registries collection is not readable."}
+        for member_path in self._member_paths(registries):
+            member = self._safe_get(member_path)
+            if not member:
+                continue
+            member_id = str(member.get("Id") or member.get("Name") or "")
+            if registry_name not in member_id and member_id not in str(registry_name):
+                continue
+            location_uri = self._registry_location_uri(member)
+            if location_uri:
+                registry_file = self._safe_get(location_uri)
+                if registry_file:
+                    return registry_file
+            return member
+        return {"available": False, "registry": registry_name, "reason": "Matching BIOS registry was not found."}
+
+    def _registry_location_uri(self, registry: dict[str, Any]) -> str | None:
+        locations = registry.get("Location")
+        if isinstance(locations, list):
+            for location in locations:
+                if isinstance(location, dict) and location.get("Uri"):
+                    return str(location["Uri"])
+        location = registry.get("Location")
+        if isinstance(location, dict) and location.get("Uri"):
+            return str(location["Uri"])
+        return None
+
+    def _bios_settings_uri(self, bios: dict[str, Any]) -> str | None:
+        settings = bios.get("@Redfish.Settings")
+        if isinstance(settings, dict):
+            settings_object = settings.get("SettingsObject")
+            if isinstance(settings_object, dict) and settings_object.get("@odata.id"):
+                return str(settings_object["@odata.id"])
+        if bios.get("@odata.id"):
+            return str(bios["@odata.id"]).rstrip("/") + "/Settings/"
+        return None
 
     def _member_paths(self, collection: object) -> list[str]:
         if not isinstance(collection, dict):

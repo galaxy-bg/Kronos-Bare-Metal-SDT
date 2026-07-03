@@ -126,6 +126,10 @@ export type GlobalSettings = {
     auto_jbod_remaining: boolean;
     prefer_agent_storage: boolean;
   };
+  bios?: {
+    enable_real_apply: boolean;
+    default_dry_run: boolean;
+  };
 };
 
 export type GlobalSettingsResponse = {
@@ -234,6 +238,71 @@ export type ServerUpdate = Partial<
 export type BulkDeleteResult = {
   deleted: number;
   requested: number;
+};
+
+export type BIOSProfile = {
+  id: number;
+  name: string;
+  vendor: string;
+  server_model: string | null;
+  server_generation: string | null;
+  source_type: string;
+  source_server_id: number | null;
+  base_workload_profile: string | null;
+  raw_attributes: Record<string, unknown>;
+  normalized_attributes: Record<string, unknown>;
+  custom_overrides: Record<string, unknown>;
+  final_attributes: Record<string, unknown>;
+  metadata_json: Record<string, unknown>;
+  export_format: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BIOSCloneFromServerPayload = {
+  server_id: number;
+  name: string;
+  base_workload_profile?: string | null;
+};
+
+export type BIOSCompareResult = {
+  profile_id: number;
+  target_server_id: number;
+  pending_reboot: boolean;
+  diff: {
+    changed: Record<string, { current: unknown; desired: unknown }>;
+    unchanged: Record<string, unknown>;
+    unsupported: Record<string, unknown>;
+    changed_count: number;
+    unsupported_count: number;
+    apply_attributes: Record<string, unknown>;
+  };
+};
+
+export type BIOSApplyJob = {
+  id: number;
+  profile_id: number;
+  target_server_id: number;
+  status: string;
+  diff_before_apply: BIOSCompareResult['diff'];
+  previous_bios_backup: Record<string, unknown>;
+  pending_reboot: boolean;
+  dry_run: boolean;
+  applied_at: string | null;
+  verified_at: string | null;
+  verification_result: Record<string, unknown> | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BIOSWorkloadOptions = {
+  server_id: number;
+  serial_number: string;
+  supported: boolean;
+  attribute: string;
+  current: string | null;
+  options: string[];
 };
 
 export type IloEnrollmentCreate = {

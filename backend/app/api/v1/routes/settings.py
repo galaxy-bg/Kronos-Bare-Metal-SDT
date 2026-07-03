@@ -29,6 +29,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "auto_jbod_remaining": True,
         "prefer_agent_storage": True,
     },
+    "bios": {
+        "enable_real_apply": False,
+        "default_dry_run": True,
+    },
 }
 
 

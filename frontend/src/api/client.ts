@@ -1,6 +1,11 @@
 import axios from 'axios';
 import type {
   BulkDeleteResult,
+  BIOSApplyJob,
+  BIOSCloneFromServerPayload,
+  BIOSCompareResult,
+  BIOSProfile,
+  BIOSWorkloadOptions,
   DashboardStats,
   GlobalSettings,
   GlobalSettingsResponse,
@@ -156,5 +161,36 @@ export async function deregisterServer(serverId: number): Promise<ServerSummary>
 
 export async function bulkDeleteServers(serverIds: number[]): Promise<BulkDeleteResult> {
   const response = await api.post<BulkDeleteResult>('/api/v1/servers/bulk-delete', { server_ids: serverIds });
+  return response.data;
+}
+
+export async function fetchBIOSProfiles(): Promise<BIOSProfile[]> {
+  const response = await api.get<BIOSProfile[]>('/api/v1/bios/profiles');
+  return response.data;
+}
+
+export async function cloneBIOSProfileFromServer(payload: BIOSCloneFromServerPayload): Promise<BIOSProfile> {
+  const response = await api.post<BIOSProfile>('/api/v1/bios/profiles/clone-from-server', payload);
+  return response.data;
+}
+
+export async function fetchBIOSWorkloadOptions(serverId: number): Promise<BIOSWorkloadOptions> {
+  const response = await api.get<BIOSWorkloadOptions>(`/api/v1/bios/servers/${serverId}/workload-options`);
+  return response.data;
+}
+
+export async function compareBIOSProfile(profileId: number, targetServerId: number): Promise<BIOSCompareResult> {
+  const response = await api.post<BIOSCompareResult>(`/api/v1/bios/profiles/${profileId}/compare`, {
+    target_server_id: targetServerId,
+  });
+  return response.data;
+}
+
+export async function applyBIOSProfileDryRun(profileId: number, targetServerId: number): Promise<BIOSApplyJob> {
+  const response = await api.post<BIOSApplyJob>(`/api/v1/bios/profiles/${profileId}/apply`, {
+    target_server_id: targetServerId,
+    dry_run: true,
+    confirmation: 'confirm',
+  });
   return response.data;
 }
