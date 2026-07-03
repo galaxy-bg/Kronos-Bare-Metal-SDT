@@ -70,10 +70,12 @@ import {
   deleteServer,
   deregisterServer,
   discoverIloServer,
+  executeBiosRebootAction,
   executeStorageApplyAction,
   fetchRecentActions,
   fetchServers,
   fetchStats,
+  markActionCompleted,
   refreshServerInventory,
   updateServer,
 } from '../api/client';
@@ -198,6 +200,17 @@ function actionLabel(actionType: string) {
     hpe_install_ilo_license: 'Install iLO License',
     validate_os_storage: 'Validate OS Storage',
     hpe_refresh_storage_inventory: 'HPE Storage Inventory',
+    hpe_storage_apply_plan: 'Storage Apply Plan',
+    bios_profile_clone: 'BIOS Profile Clone',
+    bios_profile_custom_create: 'BIOS Profile Create',
+    bios_profile_update: 'BIOS Profile Update',
+    bios_profile_delete: 'BIOS Profile Delete',
+    bios_profile_compare: 'BIOS Profile Compare',
+    bios_profile_validate: 'BIOS Profile Validate',
+    bios_profile_dry_run: 'BIOS Profile Dry Run',
+    bios_profile_deploy: 'BIOS Profile Deploy',
+    bios_profile_verify: 'BIOS Profile Verify',
+    bios_reboot_after_apply: 'BIOS Reboot',
   };
   return labels[actionType] ?? actionType.split('_').join(' ');
 }
@@ -619,6 +632,34 @@ export function DashboardPage() {
       await refreshTasks();
     } catch {
       setError('Storage apply action could not be executed.');
+    } finally {
+      setExecutingActionId(null);
+    }
+  }
+
+  async function executeBiosReboot(action: ServerAction) {
+    setExecutingActionId(action.id);
+    setError(null);
+    try {
+      const updated = await executeBiosRebootAction(action.id);
+      setActions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await refreshTasks();
+    } catch {
+      setError('BIOS reboot task could not be executed.');
+    } finally {
+      setExecutingActionId(null);
+    }
+  }
+
+  async function markTaskCompleted(action: ServerAction) {
+    setExecutingActionId(action.id);
+    setError(null);
+    try {
+      const updated = await markActionCompleted(action.id);
+      setActions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await refreshTasks();
+    } catch {
+      setError('Task could not be marked completed.');
     } finally {
       setExecutingActionId(null);
     }
@@ -1483,7 +1524,9 @@ export function DashboardPage() {
                       : null;
                   const toolAvailable = typeof action.result_json?.tool_available === 'boolean' ? action.result_json.tool_available : null;
                   const resultText = action.error_message || (
-                    diskCount !== null
+                    typeof action.result_json?.message === 'string'
+                      ? action.result_json.message
+                      : diskCount !== null
                       ? `OS disks: ${diskCount}${toolAvailable === false ? ' / ssacli missing' : ''}`
                       : action.status === 'succeeded'
                         ? 'Completed successfully'
@@ -1537,17 +1580,40 @@ export function DashboardPage() {
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
-                        {action.action_type === 'hpe_storage_apply_plan' && action.status === 'planned' && (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="warning"
-                            onClick={() => executeStorageApply(action)}
-                            disabled={executingActionId === action.id}
-                          >
-                            {executingActionId === action.id ? 'Running...' : 'Execute'}
-                          </Button>
-                        )}
+                        <Stack direction="row" spacing={0.75} justifyContent="flex-end">
+                          {action.action_type === 'hpe_storage_apply_plan' && action.status === 'planned' && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="warning"
+                              onClick={() => executeStorageApply(action)}
+                              disabled={executingActionId === action.id}
+                            >
+                              {executingActionId === action.id ? 'Running...' : 'Execute'}
+                            </Button>
+                          )}
+                          {action.action_type === 'bios_reboot_after_apply' && action.status === 'planned' && (
+                            <>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="warning"
+                                onClick={() => executeBiosReboot(action)}
+                                disabled={executingActionId === action.id}
+                              >
+                                {executingActionId === action.id ? 'Running...' : 'Reboot'}
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => markTaskCompleted(action)}
+                                disabled={executingActionId === action.id}
+                              >
+                                Mark Done
+                              </Button>
+                            </>
+                          )}
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   );

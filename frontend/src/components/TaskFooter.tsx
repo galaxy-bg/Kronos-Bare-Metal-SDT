@@ -23,7 +23,7 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Link as RouterLink } from 'react-router-dom';
-import { executeBiosRebootAction, executeStorageApplyAction, fetchGlobalSettings, fetchRecentActions, fetchServers } from '../api/client';
+import { executeBiosRebootAction, executeStorageApplyAction, fetchGlobalSettings, fetchRecentActions, fetchServers, markActionCompleted } from '../api/client';
 import type { GlobalSettings, ServerAction, ServerSummary } from '../types';
 
 const fallbackSettings: GlobalSettings['task_footer'] = {
@@ -155,6 +155,16 @@ export function TaskFooter() {
     }
   }
 
+  async function markTaskCompleted(action: ServerAction) {
+    setExecutingActionId(action.id);
+    try {
+      await markActionCompleted(action.id);
+      await refresh();
+    } finally {
+      setExecutingActionId(null);
+    }
+  }
+
   useEffect(() => {
     refresh().catch(() => undefined);
   }, []);
@@ -249,9 +259,14 @@ export function TaskFooter() {
                         </Button>
                       )}
                       {action.action_type === 'bios_reboot_after_apply' && action.status === 'planned' && (
-                        <Button size="small" variant="contained" color="warning" onClick={() => executeBiosReboot(action)} disabled={executingActionId === action.id}>
-                          {executingActionId === action.id ? 'Running...' : 'Reboot'}
-                        </Button>
+                        <Stack direction="row" spacing={0.75} justifyContent="flex-end">
+                          <Button size="small" variant="contained" color="warning" onClick={() => executeBiosReboot(action)} disabled={executingActionId === action.id}>
+                            {executingActionId === action.id ? 'Running...' : 'Reboot'}
+                          </Button>
+                          <Button size="small" variant="outlined" onClick={() => markTaskCompleted(action)} disabled={executingActionId === action.id}>
+                            Mark Done
+                          </Button>
+                        </Stack>
                       )}
                     </TableCell>
                   </TableRow>

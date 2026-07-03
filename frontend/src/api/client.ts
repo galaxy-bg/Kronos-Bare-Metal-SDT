@@ -157,6 +157,11 @@ export async function executeBiosRebootAction(actionId: number): Promise<ServerA
   return response.data;
 }
 
+export async function markActionCompleted(actionId: number): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/actions/${actionId}/mark-completed`);
+  return response.data;
+}
+
 export async function deleteServer(serverId: number): Promise<void> {
   await api.delete(`/api/v1/servers/${serverId}`);
 }

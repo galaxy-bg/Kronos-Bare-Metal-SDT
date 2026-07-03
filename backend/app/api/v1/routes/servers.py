@@ -1048,6 +1048,26 @@ def execute_bios_reboot_action(action_id: int, db: Session = Depends(get_db)) ->
     return action_to_read(action)
 
 
+@router.post("/actions/{action_id}/mark-completed", response_model=ServerActionRead)
+def mark_action_completed(action_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    action = db.get(ServerAction, action_id)
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
+    if action.status not in {"planned", "pending"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only planned or pending actions can be marked completed.")
+
+    action.status = "succeeded"
+    action.started_at = action.started_at or datetime.now(UTC)
+    action.completed_at = datetime.now(UTC)
+    result = dict(action.result_json or {})
+    result["message"] = "Task was marked completed manually."
+    result["manual_completion"] = True
+    action.result_json = result
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
+
+
 @router.post("/{server_id}/deregister", response_model=ServerRead)
 def deregister_server(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     server = db.get(Server, server_id)
