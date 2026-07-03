@@ -40,11 +40,12 @@ import {
   deleteBIOSProfile,
   deployBIOSProfile,
   fetchBIOSProfiles,
+  fetchBIOSWorkloadOptions,
   fetchGlobalSettings,
   fetchServers,
   updateBIOSProfile,
 } from '../api/client';
-import type { BIOSCompareResult, BIOSProfile, GlobalSettings, ServerSummary } from '../types';
+import type { BIOSCompareResult, BIOSProfile, BIOSWorkloadOptions, GlobalSettings, ServerSummary } from '../types';
 
 type EditState = {
   profile: BIOSProfile;
@@ -76,6 +77,8 @@ export function BiosProfilesPage() {
   const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [profileName, setProfileName] = useState('');
+  const [cloneWorkload, setCloneWorkload] = useState('');
+  const [workloadOptions, setWorkloadOptions] = useState<BIOSWorkloadOptions | null>(null);
   const [compareResult, setCompareResult] = useState<BIOSCompareResult | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -126,16 +129,34 @@ export function BiosProfilesPage() {
     void loadData();
   }, []);
 
+  useEffect(() => {
+    if (!selectedServerId) {
+      setWorkloadOptions(null);
+      return;
+    }
+    fetchBIOSWorkloadOptions(Number(selectedServerId))
+      .then((result) => {
+        setWorkloadOptions(result);
+        setCloneWorkload(result.current || '');
+      })
+      .catch(() => setWorkloadOptions(null));
+  }, [selectedServerId]);
+
   async function handleClone() {
     if (!selectedServerId || !profileName.trim()) return;
     setLoading(true);
     setError(null);
     setMessage(null);
     try {
-      const profile = await cloneBIOSProfileFromServer({ server_id: Number(selectedServerId), name: profileName.trim() });
+      const profile = await cloneBIOSProfileFromServer({
+        server_id: Number(selectedServerId),
+        name: profileName.trim(),
+        base_workload_profile: cloneWorkload.trim() || null,
+      });
       setProfiles((current) => [profile, ...current.filter((item) => item.id !== profile.id)]);
       setSelectedProfileId(String(profile.id));
       setProfileName('');
+      setCloneWorkload(workloadOptions?.current || '');
       setMessage(`BIOS profile cloned from ${selectedServer?.serial_number ?? 'server'}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Clone failed.');
@@ -281,7 +302,7 @@ export function BiosProfilesPage() {
             Clone From Server
           </Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-            <FormControl fullWidth size="small">
+            <FormControl size="small" sx={{ flex: '1 1 280px', minWidth: { xs: '100%', md: 280 } }}>
               <InputLabel>Source Server</InputLabel>
               <Select label="Source Server" value={selectedServerId} onChange={(event) => setSelectedServerId(event.target.value)}>
                 {servers.map((server) => (
@@ -291,20 +312,38 @@ export function BiosProfilesPage() {
                 ))}
               </Select>
             </FormControl>
+            <FormControl size="small" sx={{ flex: '1 1 260px', minWidth: { xs: '100%', md: 260 } }}>
+              <InputLabel>Workload Profile</InputLabel>
+              <Select
+                label="Workload Profile"
+                value={cloneWorkload}
+                onChange={(event) => setCloneWorkload(event.target.value)}
+                displayEmpty
+              >
+                {cloneWorkload && !workloadOptions?.options.includes(cloneWorkload) && (
+                  <MenuItem value={cloneWorkload}>{cloneWorkload}</MenuItem>
+                )}
+                {(workloadOptions?.options || []).map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {workloadOptions?.display_names?.[option] || option}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField
-              fullWidth
               size="small"
               label="Profile Name"
               value={profileName}
               onChange={(event) => setProfileName(event.target.value)}
               placeholder="DL325 Gen12 Golden BIOS"
+              sx={{ flex: '1 1 260px', minWidth: { xs: '100%', md: 260 } }}
             />
             <Button
               startIcon={<ContentCopyIcon />}
               variant="contained"
               onClick={handleClone}
               disabled={loading || !selectedServerId || !profileName.trim()}
-              sx={{ minWidth: 150 }}
+              sx={{ minWidth: { xs: '100%', md: 140 }, height: 40 }}
             >
               Clone
             </Button>
@@ -393,8 +432,8 @@ export function BiosProfilesPage() {
           <Typography variant="h6" sx={{ fontWeight: 900 }}>
             Compare / Deploy
           </Typography>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-            <FormControl fullWidth size="small">
+          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems={{ lg: 'center' }}>
+            <FormControl size="small" sx={{ flex: '1 1 260px', minWidth: { xs: '100%', lg: 260 } }}>
               <InputLabel>Profile</InputLabel>
               <Select label="Profile" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}>
                 {profiles.map((profile) => (
@@ -404,7 +443,7 @@ export function BiosProfilesPage() {
                 ))}
               </Select>
             </FormControl>
-            <FormControl fullWidth size="small">
+            <FormControl size="small" sx={{ flex: '1 1 280px', minWidth: { xs: '100%', lg: 280 } }}>
               <InputLabel>Target Server</InputLabel>
               <Select label="Target Server" value={selectedServerId} onChange={(event) => setSelectedServerId(event.target.value)}>
                 {servers.map((server) => (
@@ -414,25 +453,40 @@ export function BiosProfilesPage() {
                 ))}
               </Select>
             </FormControl>
-            <Button startIcon={<DifferenceIcon />} variant="outlined" onClick={handleCompare} disabled={loading || !selectedProfileId}>
-              Compare
-            </Button>
-            <Button startIcon={<ScienceIcon />} variant="outlined" onClick={handleDryRunApply} disabled={loading || !selectedProfileId}>
-              Dry Run
-            </Button>
-            <Tooltip title={deployBlockedReason || 'Deploy changed BIOS attributes'}>
-              <span>
-                <Button
-                  startIcon={<PublishIcon />}
-                  variant="contained"
-                  color="primary"
-                  onClick={handleDeploy}
-                  disabled={loading || !selectedProfileId || Boolean(deployBlockedReason)}
-                >
-                  Deploy
-                </Button>
-              </span>
-            </Tooltip>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flex: '0 0 auto', width: { xs: '100%', lg: 'auto' } }}>
+              <Button
+                startIcon={<DifferenceIcon />}
+                variant="outlined"
+                onClick={handleCompare}
+                disabled={loading || !selectedProfileId}
+                sx={{ minWidth: { xs: '100%', sm: 128 }, height: 40 }}
+              >
+                Compare
+              </Button>
+              <Button
+                startIcon={<ScienceIcon />}
+                variant="outlined"
+                onClick={handleDryRunApply}
+                disabled={loading || !selectedProfileId}
+                sx={{ minWidth: { xs: '100%', sm: 128 }, height: 40 }}
+              >
+                Dry Run
+              </Button>
+              <Tooltip title={deployBlockedReason || 'Deploy changed BIOS attributes'}>
+                <span>
+                  <Button
+                    startIcon={<PublishIcon />}
+                    variant="contained"
+                    color="primary"
+                    onClick={handleDeploy}
+                    disabled={loading || !selectedProfileId || Boolean(deployBlockedReason)}
+                    sx={{ minWidth: { xs: '100%', sm: 128 }, height: 40 }}
+                  >
+                    Deploy
+                  </Button>
+                </span>
+              </Tooltip>
+            </Stack>
           </Stack>
           <Alert severity={deployBlockedReason ? 'warning' : 'info'}>
             {deployBlockedReason ||
@@ -492,12 +546,26 @@ export function BiosProfilesPage() {
                 value={editState.name}
                 onChange={(event) => setEditState({ ...editState, name: event.target.value })}
               />
-              <TextField
-                label="HPE Workload Profile"
-                value={editState.workload}
-                onChange={(event) => setEditState({ ...editState, workload: event.target.value })}
-                helperText="Example: Virtualization-MaxPerformance, Virtualization-PowerEfficient, Custom"
-              />
+              <FormControl fullWidth size="small">
+                <InputLabel>HPE Workload Profile</InputLabel>
+                <Select
+                  label="HPE Workload Profile"
+                  value={editState.workload}
+                  onChange={(event) => setEditState({ ...editState, workload: event.target.value })}
+                >
+                  {editState.workload && !workloadOptions?.options.includes(editState.workload) && (
+                    <MenuItem value={editState.workload}>{editState.workload}</MenuItem>
+                  )}
+                  {(workloadOptions?.options || []).map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {workloadOptions?.display_names?.[option] || option}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                Workload list is read from the selected target server iLO registry.
+              </Typography>
               <TextField
                 label="Custom Overrides JSON"
                 value={editState.overridesJson}
