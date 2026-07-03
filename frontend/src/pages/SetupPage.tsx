@@ -36,6 +36,10 @@ const emptySettings: GlobalSettings = {
     auto_jbod_remaining: true,
     prefer_agent_storage: true,
   },
+  bios: {
+    enable_real_apply: false,
+    default_dry_run: true,
+  },
 };
 
 function numberValue(value: string, fallback: number) {
@@ -170,6 +174,39 @@ export function SetupPage() {
             control={<Checkbox checked={settings.storage.enable_destructive_raid_actions} onChange={(event) => setSettings({ ...settings, storage: { ...settings.storage, enable_destructive_raid_actions: event.target.checked } })} />}
             label="Enable destructive RAID actions"
           />
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, bgcolor: '#ffffff' }}>
+        <Typography variant="h6" sx={{ fontWeight: 900, mb: 2 }}>
+          BIOS Profiles
+        </Typography>
+        <Stack spacing={1}>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={settings.bios.enable_real_apply}
+                onChange={(event) =>
+                  setSettings({ ...settings, bios: { ...settings.bios, enable_real_apply: event.target.checked } })
+                }
+              />
+            }
+            label="Enable real BIOS deploy"
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={settings.bios.default_dry_run}
+                onChange={(event) =>
+                  setSettings({ ...settings, bios: { ...settings.bios, default_dry_run: event.target.checked } })
+                }
+              />
+            }
+            label="Default to dry-run"
+          />
+          <Typography variant="body2" color="text.secondary">
+            BIOS deploy writes only changed Redfish attributes and never reboots automatically.
+          </Typography>
         </Stack>
       </Paper>
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.bios.diff import compliance_result, diff_attributes
 from app.bios.normalizer import final_attributes, normalize_bios_config
 from app.bios.vendors.hpe_redfish import HpeRedfishBIOSClient
+from app.models.global_setting import GlobalSetting
 from app.models.bios_profile import BIOSProfile, BIOSProfileApplyJob
 from app.models.server import Server
 from app.utils.dmi import normalize_vendor
@@ -155,8 +156,24 @@ class BIOSProfileService:
             verification_result=None,
         )
         if not dry_run:
-            job.status = "failed"
-            job.error_message = "Real BIOS apply is disabled in this implementation phase."
+            if not self._real_apply_enabled():
+                job.status = "failed"
+                job.error_message = "Real BIOS deploy is disabled. Enable bios.enable_real_apply in global settings first."
+            elif diff.get("unsupported"):
+                job.status = "failed"
+                job.error_message = "BIOS deploy blocked because the profile contains unsupported target attributes."
+            elif not diff.get("apply_attributes"):
+                job.status = "succeeded"
+                job.applied_at = datetime.now(UTC)
+            else:
+                try:
+                    result = self.hpe_client.apply_attributes(server, diff["apply_attributes"], dry_run=False)
+                    job.status = "pending_reboot" if job.pending_reboot else "succeeded"
+                    job.applied_at = datetime.now(UTC)
+                    job.verification_result = {"apply_result": result}
+                except RedfishError as exc:
+                    job.status = "failed"
+                    job.error_message = str(exc)
         self.db.add(job)
         self.db.commit()
         self.db.refresh(job)
@@ -189,3 +206,9 @@ class BIOSProfileService:
             if token.lower().startswith("gen"):
                 return token
         return None
+
+    def _real_apply_enabled(self) -> bool:
+        record = self.db.get(GlobalSetting, "global")
+        settings = record.value_json if record is not None and isinstance(record.value_json, dict) else {}
+        bios_settings = settings.get("bios") if isinstance(settings.get("bios"), dict) else {}
+        return bool(bios_settings.get("enable_real_apply", False))

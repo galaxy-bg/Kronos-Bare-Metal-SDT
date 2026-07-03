@@ -169,6 +169,15 @@ export async function fetchBIOSProfiles(): Promise<BIOSProfile[]> {
   return response.data;
 }
 
+export async function updateBIOSProfile(profileId: number, payload: Partial<BIOSProfile>): Promise<BIOSProfile> {
+  const response = await api.put<BIOSProfile>(`/api/v1/bios/profiles/${profileId}`, payload);
+  return response.data;
+}
+
+export async function deleteBIOSProfile(profileId: number): Promise<void> {
+  await api.delete(`/api/v1/bios/profiles/${profileId}`);
+}
+
 export async function cloneBIOSProfileFromServer(payload: BIOSCloneFromServerPayload): Promise<BIOSProfile> {
   const response = await api.post<BIOSProfile>('/api/v1/bios/profiles/clone-from-server', payload);
   return response.data;
@@ -190,6 +199,15 @@ export async function applyBIOSProfileDryRun(profileId: number, targetServerId: 
   const response = await api.post<BIOSApplyJob>(`/api/v1/bios/profiles/${profileId}/apply`, {
     target_server_id: targetServerId,
     dry_run: true,
+    confirmation: 'confirm',
+  });
+  return response.data;
+}
+
+export async function deployBIOSProfile(profileId: number, targetServerId: number): Promise<BIOSApplyJob> {
+  const response = await api.post<BIOSApplyJob>(`/api/v1/bios/profiles/${profileId}/apply`, {
+    target_server_id: targetServerId,
+    dry_run: false,
     confirmation: 'confirm',
   });
   return response.data;

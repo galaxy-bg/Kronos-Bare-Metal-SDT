@@ -126,7 +126,7 @@ export type GlobalSettings = {
     auto_jbod_remaining: boolean;
     prefer_agent_storage: boolean;
   };
-  bios?: {
+  bios: {
     enable_real_apply: boolean;
     default_dry_run: boolean;
   };
@@ -303,6 +303,7 @@ export type BIOSWorkloadOptions = {
   attribute: string;
   current: string | null;
   options: string[];
+  display_names?: Record<string, string>;
 };
 
 export type IloEnrollmentCreate = {
