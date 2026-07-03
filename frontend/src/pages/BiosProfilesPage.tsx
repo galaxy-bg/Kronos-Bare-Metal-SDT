@@ -148,7 +148,7 @@ export function BiosProfilesPage() {
   );
   const realDeployEnabled = Boolean(settings?.bios?.enable_real_apply);
   const deployBlockedReason = !realDeployEnabled
-    ? 'Real BIOS deploy is disabled in Setup.'
+    ? 'Real BIOS deploy is disabled in Settings.'
     : !compareResult
       ? 'Run compare before deploy.'
     : compareResult?.diff.unsupported_count
@@ -413,7 +413,7 @@ export function BiosProfilesPage() {
       {error && <Alert severity="error">{error}</Alert>}
       {message && <Alert severity="success">{message}</Alert>}
       {!realDeployEnabled && (
-        <Alert severity="info">Real BIOS deploy is currently disabled. Enable it from Setup after reviewing the diff.</Alert>
+        <Alert severity="info">Real BIOS deploy is currently disabled. Enable it from Settings after reviewing the diff.</Alert>
       )}
 
       <Paper variant="outlined" sx={{ p: 2.5 }}>

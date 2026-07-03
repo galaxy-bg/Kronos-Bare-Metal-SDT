@@ -92,7 +92,7 @@ export function SetupPage() {
           <SettingsIcon color="primary" />
           <Box>
             <Typography variant="h4" sx={{ fontWeight: 900 }}>
-              Setup
+              Settings
             </Typography>
             <Typography color="text.secondary" sx={{ fontWeight: 700 }}>
               Global deployment and provisioning defaults

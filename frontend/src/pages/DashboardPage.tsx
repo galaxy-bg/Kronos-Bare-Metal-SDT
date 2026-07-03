@@ -1276,7 +1276,7 @@ export function DashboardPage() {
         <Box sx={{ px: { xs: 2, md: 2.5 }, py: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#ffffff' }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
           <Typography variant="h6" sx={{ fontWeight: 900 }}>
-            Managed Servers
+            Inventory
           </Typography>
             <Stack direction="row" spacing={1}>
               <Button startIcon={<VpnKeyIcon />} size="small" variant="contained" onClick={openIloDiscovery}>

@@ -41,13 +41,13 @@ export default function App() {
             <Box sx={{ flex: 1 }} />
             <Stack direction="row" spacing={1} sx={{ display: { xs: 'none', sm: 'flex' } }}>
               <Button component={RouterLink} to="/" startIcon={<StorageIcon />} variant="outlined" size="small">
-                Servers
+                Inventory
               </Button>
               <Button component={RouterLink} to="/bios/profiles" startIcon={<TuneIcon />} variant="outlined" size="small">
                 BIOS Profiles
               </Button>
               <Button component={RouterLink} to="/setup" startIcon={<SettingsIcon />} variant="outlined" size="small">
-                Setup
+                Settings
               </Button>
             </Stack>
           </Stack>
