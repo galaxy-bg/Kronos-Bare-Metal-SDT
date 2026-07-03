@@ -45,7 +45,12 @@ def redfish_get_json(
     verify_tls: bool = False,
 ) -> dict[str, Any]:
     url = base_url.rstrip("/") + "/" + path.lstrip("/")
-    headers = {"Accept": "*/*", "Authorization": basic_auth_header(username, password)}
+    headers = {
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip",
+        "Authorization": basic_auth_header(username, password),
+        "User-Agent": "curl/8.0",
+    }
     request = Request(url, headers=headers, method="GET")
     context = None if verify_tls else ssl._create_unverified_context()
     try:
