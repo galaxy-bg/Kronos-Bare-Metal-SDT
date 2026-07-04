@@ -203,6 +203,17 @@ export function TaskFooter() {
             </Typography>
           )}
           <Box sx={{ flex: 1 }} />
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              display: { xs: 'none', lg: 'block' },
+              fontWeight: 800,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            KDX SDT Server Deployment Toolkit · Version 1 · © 2026 KDX
+          </Typography>
           <Tooltip title="Refresh tasks" arrow>
             <IconButton size="small" onClick={() => refresh().catch(() => undefined)}>
               <RefreshIcon fontSize="small" />

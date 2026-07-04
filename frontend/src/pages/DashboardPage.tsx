@@ -1204,17 +1204,15 @@ export function DashboardPage() {
     <Stack spacing={3}>
       <Box
         sx={{
-          pt: { xs: 0.5, md: 1.25 },
-          pb: { xs: 0.5, md: 1.25 },
-          mx: 'auto',
-          maxWidth: 960,
-          textAlign: 'center',
+          pt: { xs: 0.5, md: 1 },
+          pb: { xs: 0.5, md: 1.5 },
+          textAlign: 'left',
         }}
       >
         <Typography variant="h3" sx={{ fontWeight: 950, color: '#17191c', lineHeight: 1.05 }}>
           Dashboard
         </Typography>
-        <Typography color="text.secondary" sx={{ mt: 1, mx: 'auto', maxWidth: 760, fontSize: 19, fontWeight: 650 }}>
+        <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 760, fontSize: 19, fontWeight: 650 }}>
           Overview of your infrastructure
         </Typography>
       </Box>
@@ -1230,7 +1228,7 @@ export function DashboardPage() {
         </Alert>
       )}
 
-      <Grid container spacing={2} sx={{ maxWidth: 1120, mx: 'auto', width: '100%' }}>
+      <Grid container spacing={2}>
         <Grid item xs={12} md={4}>
           <Metric title="Inventory" value={stats.total_servers} icon={<DnsIcon />} tone="teal" />
         </Grid>
@@ -2222,35 +2220,35 @@ function Metric({ title, value, icon, tone }: { title: string; value: number; ic
         boxShadow: '0 16px 34px rgba(23, 46, 38, 0.06)',
       }}
     >
-      <Box sx={{ p: { xs: 1.8, md: 2.1 } }}>
-        <Stack direction="row" spacing={1.75} alignItems="center">
+      <Box sx={{ p: { xs: 2.25, md: 2.6 } }}>
+        <Stack direction="row" spacing={2.1} alignItems="center">
           <Box
             sx={{
               color: tones.accent,
               bgcolor: tones.iconBg,
-              width: 56,
-              height: 56,
+              width: 64,
+              height: 64,
               borderRadius: 1.5,
               border: '1px solid',
               borderColor: 'divider',
               display: 'grid',
               placeItems: 'center',
-              '& svg': { fontSize: 30 },
+              '& svg': { fontSize: 34 },
             }}
           >
             {icon}
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="h4" sx={{ fontWeight: 950, lineHeight: 1 }}>
+            <Typography variant="h3" sx={{ fontWeight: 950, lineHeight: 1 }}>
               {value.toLocaleString()}
             </Typography>
-            <Typography sx={{ mt: 0.55, fontSize: 16, fontWeight: 850 }}>
+            <Typography sx={{ mt: 0.7, fontSize: 17, fontWeight: 850 }}>
               {title}
             </Typography>
           </Box>
         </Stack>
       </Box>
-      <Box sx={{ px: 2.1, py: 0.85, bgcolor: tones.labelBg, borderTop: '1px solid', borderColor: 'divider' }}>
+      <Box sx={{ px: 2.6, py: 1, bgcolor: tones.labelBg, borderTop: '1px solid', borderColor: 'divider' }}>
         <Typography sx={{ fontWeight: 850, color: 'text.secondary', fontSize: 14 }}>
           {tones.label}
         </Typography>
