@@ -1230,13 +1230,13 @@ export function DashboardPage() {
 
       <Grid container spacing={2}>
         <Grid item xs={12} md={4}>
-          <Metric title="Inventory" value={stats.total_servers} icon={<DnsIcon />} tone="teal" />
+          <Metric title="Inventory" value={stats.total_servers} icon={<DnsIcon />} label="Registered assets" />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Metric title="Agent" value={agentReachableCount} icon={<LanIcon />} tone="green" />
+          <Metric title="KDX Agent" value={agentReachableCount} icon={<LanIcon />} label="Agents reachable" />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Metric title="iLO" value={iloReachableCount} icon={<VpnKeyIcon />} tone="blue" />
+          <Metric title="HPE iLO" value={iloReachableCount} icon={<VpnKeyIcon />} label="Integrated Lights-Out reachable" />
         </Grid>
       </Grid>
 
@@ -2186,27 +2186,12 @@ export function DashboardPage() {
   );
 }
 
-function Metric({ title, value, icon, tone }: { title: string; value: number; icon: ReactNode; tone: 'teal' | 'green' | 'blue' }) {
-  const tones = {
-    teal: {
-      accent: '#49b49d',
-      iconBg: '#e7f7f3',
-      labelBg: '#f1fbf8',
-      label: 'Registered assets',
-    },
-    green: {
-      accent: '#62bd8f',
-      iconBg: '#eaf8f0',
-      labelBg: '#f4fbf7',
-      label: 'Agents reachable',
-    },
-    blue: {
-      accent: '#5aaec5',
-      iconBg: '#eaf7fa',
-      labelBg: '#f3fbfc',
-      label: 'BMC reachable',
-    },
-  }[tone];
+function Metric({ title, value, icon, label }: { title: string; value: number; icon: ReactNode; label: string }) {
+  const tone = {
+    accent: '#49b48d',
+    iconBg: '#eaf7f2',
+    labelBg: '#f4fbf7',
+  };
   return (
     <Paper
       variant="outlined"
@@ -2224,8 +2209,8 @@ function Metric({ title, value, icon, tone }: { title: string; value: number; ic
         <Stack direction="row" spacing={2.1} alignItems="center">
           <Box
             sx={{
-              color: tones.accent,
-              bgcolor: tones.iconBg,
+              color: tone.accent,
+              bgcolor: tone.iconBg,
               width: 64,
               height: 64,
               borderRadius: 1.5,
@@ -2248,9 +2233,9 @@ function Metric({ title, value, icon, tone }: { title: string; value: number; ic
           </Box>
         </Stack>
       </Box>
-      <Box sx={{ px: 2.6, py: 1, bgcolor: tones.labelBg, borderTop: '1px solid', borderColor: 'divider' }}>
+      <Box sx={{ px: 2.6, py: 1, bgcolor: tone.labelBg, borderTop: '1px solid', borderColor: 'divider' }}>
         <Typography sx={{ fontWeight: 850, color: 'text.secondary', fontSize: 14 }}>
-          {tones.label}
+          {label}
         </Typography>
       </Box>
     </Paper>
