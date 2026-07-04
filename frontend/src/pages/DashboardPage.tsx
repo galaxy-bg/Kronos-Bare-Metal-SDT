@@ -2188,21 +2188,21 @@ export function DashboardPage() {
 function Metric({ title, value, icon, tone }: { title: string; value: number; icon: ReactNode; tone: 'teal' | 'green' | 'blue' }) {
   const tones = {
     teal: {
-      bg: 'linear-gradient(135deg, #078f91 0%, #0aa6a0 100%)',
-      footer: 'rgba(0, 102, 104, 0.34)',
-      iconBg: 'rgba(2, 85, 88, 0.34)',
+      accent: '#49b49d',
+      iconBg: '#e7f7f3',
+      labelBg: '#f1fbf8',
       label: 'Registered assets',
     },
     green: {
-      bg: 'linear-gradient(135deg, #079b67 0%, #12b57a 100%)',
-      footer: 'rgba(0, 105, 64, 0.32)',
-      iconBg: 'rgba(2, 96, 58, 0.34)',
+      accent: '#62bd8f',
+      iconBg: '#eaf8f0',
+      labelBg: '#f4fbf7',
       label: 'Agents reachable',
     },
     blue: {
-      bg: 'linear-gradient(135deg, #2467b3 0%, #2f8bd9 100%)',
-      footer: 'rgba(20, 68, 128, 0.32)',
-      iconBg: 'rgba(19, 73, 137, 0.34)',
+      accent: '#5aaec5',
+      iconBg: '#eaf7fa',
+      labelBg: '#f3fbfc',
       label: 'BMC reachable',
     },
   }[tone];
@@ -2212,22 +2212,33 @@ function Metric({ title, value, icon, tone }: { title: string; value: number; ic
       sx={{
         height: '100%',
         overflow: 'hidden',
-        borderColor: 'transparent',
-        bgcolor: 'transparent',
-        background: tones.bg,
-        color: '#ffffff',
-        boxShadow: '0 18px 42px rgba(20, 68, 59, 0.13)',
+        position: 'relative',
+        borderColor: 'divider',
+        bgcolor: '#ffffff',
+        color: 'text.primary',
+        boxShadow: '0 16px 34px rgba(23, 46, 38, 0.06)',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 4,
+          bgcolor: tones.accent,
+        },
       }}
     >
       <Box sx={{ p: { xs: 1.8, md: 2.1 } }}>
         <Stack direction="row" spacing={1.75} alignItems="center">
           <Box
             sx={{
-              color: '#ffffff',
+              color: tones.accent,
               bgcolor: tones.iconBg,
               width: 56,
               height: 56,
-              borderRadius: 999,
+              borderRadius: 1.5,
+              border: '1px solid',
+              borderColor: 'divider',
               display: 'grid',
               placeItems: 'center',
               '& svg': { fontSize: 30 },
@@ -2245,8 +2256,8 @@ function Metric({ title, value, icon, tone }: { title: string; value: number; ic
           </Box>
         </Stack>
       </Box>
-      <Box sx={{ px: 2.1, py: 0.85, bgcolor: tones.footer }}>
-        <Typography sx={{ fontWeight: 850, color: 'rgba(255,255,255,0.86)', fontSize: 14 }}>
+      <Box sx={{ px: 2.1, py: 0.85, bgcolor: tones.labelBg, borderTop: '1px solid', borderColor: 'divider' }}>
+        <Typography sx={{ fontWeight: 850, color: 'text.secondary', fontSize: 14 }}>
           {tones.label}
         </Typography>
       </Box>
