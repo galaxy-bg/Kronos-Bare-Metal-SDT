@@ -143,6 +143,17 @@ function validationSummary(result: BIOSProfileValidationResult | null) {
   return `Invalid: ${unsupported} unsupported, ${invalid} invalid values.`;
 }
 
+const biosJsonEditorSx = {
+  '& textarea': {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+    fontSize: 14,
+    lineHeight: 1.55,
+    maxHeight: { xs: '300px', md: '42vh' },
+    overflow: 'auto !important',
+    whiteSpace: 'pre',
+  },
+};
+
 export function BiosProfilesPage() {
   const [profiles, setProfiles] = useState<BIOSProfile[]>([]);
   const [servers, setServers] = useState<ServerSummary[]>([]);
@@ -283,7 +294,7 @@ export function BiosProfilesPage() {
       const attributes = parseAttributes(customAttributesText);
       const result = await validateBIOSProfileAttributes(Number(selectedServerId), attributes, customWorkload.trim() || null);
       setCustomValidation(result);
-      setMessage(validationSummary(result));
+      setMessage(result.valid ? validationSummary(result) : null);
     } catch (err) {
       setCustomValidation(null);
       setError(err instanceof Error ? err.message : 'BIOS profile validation failed.');
@@ -446,7 +457,7 @@ export function BiosProfilesPage() {
       const overrides = parseAttributes(editState.overridesJson);
       const result = await validateBIOSProfileAttributes(Number(selectedServerId), overrides, editState.workload.trim() || null);
       setEditValidation(result);
-      setMessage(validationSummary(result));
+      setMessage(result.valid ? validationSummary(result) : null);
     } catch (err) {
       setEditValidation(null);
       setError(err instanceof Error ? err.message : 'BIOS profile validation failed.');
@@ -602,9 +613,12 @@ export function BiosProfilesPage() {
                   setCustomAttributesText(event.target.value);
                   setCustomValidation(null);
                 }}
+                fullWidth
                 multiline
                 minRows={7}
+                maxRows={18}
                 helperText="Template/profile values are validated against the selected server BIOS registry before save."
+                sx={biosJsonEditorSx}
               />
             </>
           )}
@@ -879,9 +893,12 @@ export function BiosProfilesPage() {
                   setEditValidation(null);
                   setEditState({ ...editState, overridesJson: event.target.value });
                 }}
+                fullWidth
                 multiline
                 minRows={8}
+                maxRows={18}
                 helperText='JSON or key: value. Example: {"PowerRegulator":"StaticHighPerf","ProcSMT":"Enabled"}'
+                sx={biosJsonEditorSx}
               />
               {editValidation && (
                 <Alert severity={editValidation.valid ? 'success' : 'error'}>
