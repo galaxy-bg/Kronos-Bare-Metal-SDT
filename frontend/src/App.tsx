@@ -29,13 +29,13 @@ export default function App() {
             <BrandMark />
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="h5" sx={{ lineHeight: 1, fontWeight: 900, color: 'text.primary' }}>
-                KDX Genesis
+                KDX SDT
               </Typography>
               <Typography
                 variant="caption"
                 sx={{ color: 'text.secondary', fontWeight: 900, letterSpacing: 1.8, textTransform: 'uppercase' }}
               >
-                Bare Metal Lifecycle Platform
+                Server Deployment Toolkit
               </Typography>
             </Box>
             <Box sx={{ flex: 1 }} />

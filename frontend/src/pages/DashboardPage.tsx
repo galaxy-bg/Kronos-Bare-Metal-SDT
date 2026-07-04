@@ -48,7 +48,6 @@ import LanIcon from '@mui/icons-material/Lan';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
-import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
@@ -592,6 +591,8 @@ export function DashboardPage() {
   const allVisibleSelected = filteredServers.length > 0 && selectedVisibleIds.length === filteredServers.length;
   const partiallyVisibleSelected = selectedVisibleIds.length > 0 && selectedVisibleIds.length < filteredServers.length;
   const serverById = new Map(servers.map((server) => [server.id, server]));
+  const agentReachableCount = servers.filter((server) => server.agent_reachable === true).length;
+  const iloReachableCount = servers.filter((server) => server.bmc_reachable === true).length;
   const activeActionCount = actions.filter((action) => action.status === 'pending' || action.status === 'running').length;
   const taskRefreshLabel = activeActionCount > 0 ? `${ACTIVE_TASK_REFRESH_MS / 1000}s` : `${IDLE_TASK_REFRESH_MS / 1000}s`;
   const selectedServerCanRefreshInventory = Boolean(selectedServer?.bmc_ip && hasUsableActionCredential(selectedServer));
@@ -1228,13 +1229,13 @@ export function DashboardPage() {
 
       <Grid container spacing={2}>
         <Grid item xs={12} md={4}>
-          <Metric title="Servers" value={stats.total_servers} icon={<DnsIcon />} tone="teal" />
+          <Metric title="Inventory" value={stats.total_servers} icon={<DnsIcon />} tone="teal" />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Metric title="Online Servers" value={stats.online_servers} icon={<LanIcon />} tone="green" />
+          <Metric title="Agent" value={agentReachableCount} icon={<LanIcon />} tone="green" />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Metric title="Offline Servers" value={stats.offline_servers} icon={<PowerSettingsNewIcon />} tone="red" />
+          <Metric title="iLO" value={iloReachableCount} icon={<VpnKeyIcon />} tone="blue" />
         </Grid>
       </Grid>
 
@@ -2184,25 +2185,25 @@ export function DashboardPage() {
   );
 }
 
-function Metric({ title, value, icon, tone }: { title: string; value: number; icon: ReactNode; tone: 'teal' | 'green' | 'red' }) {
+function Metric({ title, value, icon, tone }: { title: string; value: number; icon: ReactNode; tone: 'teal' | 'green' | 'blue' }) {
   const tones = {
     teal: {
       bg: 'linear-gradient(135deg, #078f91 0%, #0aa6a0 100%)',
       footer: 'rgba(0, 102, 104, 0.34)',
       iconBg: 'rgba(2, 85, 88, 0.34)',
-      label: 'Total inventory',
+      label: 'Registered assets',
     },
     green: {
       bg: 'linear-gradient(135deg, #079b67 0%, #12b57a 100%)',
       footer: 'rgba(0, 105, 64, 0.32)',
       iconBg: 'rgba(2, 96, 58, 0.34)',
-      label: 'Reachable now',
+      label: 'Agents reachable',
     },
-    red: {
-      bg: 'linear-gradient(135deg, #c24d43 0%, #e06a4b 100%)',
-      footer: 'rgba(119, 37, 31, 0.28)',
-      iconBg: 'rgba(122, 41, 34, 0.28)',
-      label: 'Needs attention',
+    blue: {
+      bg: 'linear-gradient(135deg, #2467b3 0%, #2f8bd9 100%)',
+      footer: 'rgba(20, 68, 128, 0.32)',
+      iconBg: 'rgba(19, 73, 137, 0.34)',
+      label: 'BMC reachable',
     },
   }[tone];
   return (
@@ -2218,34 +2219,34 @@ function Metric({ title, value, icon, tone }: { title: string; value: number; ic
         boxShadow: '0 18px 42px rgba(20, 68, 59, 0.13)',
       }}
     >
-      <Box sx={{ p: { xs: 2.25, md: 2.75 } }}>
-        <Stack direction="row" spacing={2.25} alignItems="center">
+      <Box sx={{ p: { xs: 1.8, md: 2.1 } }}>
+        <Stack direction="row" spacing={1.75} alignItems="center">
           <Box
             sx={{
               color: '#ffffff',
               bgcolor: tones.iconBg,
-              width: 72,
-              height: 72,
+              width: 56,
+              height: 56,
               borderRadius: 999,
               display: 'grid',
               placeItems: 'center',
-              '& svg': { fontSize: 36 },
+              '& svg': { fontSize: 30 },
             }}
           >
             {icon}
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="h3" sx={{ fontWeight: 950, lineHeight: 1 }}>
+            <Typography variant="h4" sx={{ fontWeight: 950, lineHeight: 1 }}>
               {value.toLocaleString()}
             </Typography>
-            <Typography sx={{ mt: 0.8, fontSize: 18, fontWeight: 850 }}>
+            <Typography sx={{ mt: 0.55, fontSize: 16, fontWeight: 850 }}>
               {title}
             </Typography>
           </Box>
         </Stack>
       </Box>
-      <Box sx={{ px: 2.75, py: 1.15, bgcolor: tones.footer }}>
-        <Typography sx={{ fontWeight: 850, color: 'rgba(255,255,255,0.86)' }}>
+      <Box sx={{ px: 2.1, py: 0.85, bgcolor: tones.footer }}>
+        <Typography sx={{ fontWeight: 850, color: 'rgba(255,255,255,0.86)', fontSize: 14 }}>
           {tones.label}
         </Typography>
       </Box>
