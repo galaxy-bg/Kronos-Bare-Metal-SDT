@@ -1203,21 +1203,15 @@ export function DashboardPage() {
     <Stack spacing={3}>
       <Box
         sx={{
-          border: '1px solid',
-          borderColor: 'divider',
-          bgcolor: '#ffffff',
-          p: { xs: 2.5, md: 3 },
-          borderRadius: 2,
+          pt: { xs: 0.5, md: 1 },
+          pb: { xs: 0.5, md: 1.5 },
         }}
       >
-        <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 900, letterSpacing: 1.6 }}>
-          KDX SDT Control Plane
+        <Typography variant="h3" sx={{ fontWeight: 950, color: '#17191c', lineHeight: 1.05 }}>
+          Dashboard
         </Typography>
-        <Typography variant="h4" sx={{ fontWeight: 900, mt: 0.5 }}>
-          Server Discovery
-        </Typography>
-        <Typography color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, fontSize: 17 }}>
-          Discover, register and manage bare-metal servers from KDX Live USB agents.
+        <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 760, fontSize: 19, fontWeight: 650 }}>
+          Overview of your infrastructure
         </Typography>
       </Box>
 
@@ -1234,13 +1228,13 @@ export function DashboardPage() {
 
       <Grid container spacing={2}>
         <Grid item xs={12} md={4}>
-          <Metric title="Total Servers" value={stats.total_servers} icon={<DnsIcon />} />
+          <Metric title="Servers" value={stats.total_servers} icon={<DnsIcon />} tone="teal" />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Metric title="Online Servers" value={stats.online_servers} icon={<LanIcon />} />
+          <Metric title="Online Servers" value={stats.online_servers} icon={<LanIcon />} tone="green" />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Metric title="Offline Servers" value={stats.offline_servers} icon={<PowerSettingsNewIcon />} />
+          <Metric title="Offline Servers" value={stats.offline_servers} icon={<PowerSettingsNewIcon />} tone="red" />
         </Grid>
       </Grid>
 
@@ -2190,34 +2184,71 @@ export function DashboardPage() {
   );
 }
 
-function Metric({ title, value, icon }: { title: string; value: number; icon: ReactNode }) {
+function Metric({ title, value, icon, tone }: { title: string; value: number; icon: ReactNode; tone: 'teal' | 'green' | 'red' }) {
+  const tones = {
+    teal: {
+      bg: 'linear-gradient(135deg, #078f91 0%, #0aa6a0 100%)',
+      footer: 'rgba(0, 102, 104, 0.34)',
+      iconBg: 'rgba(2, 85, 88, 0.34)',
+      label: 'Total inventory',
+    },
+    green: {
+      bg: 'linear-gradient(135deg, #079b67 0%, #12b57a 100%)',
+      footer: 'rgba(0, 105, 64, 0.32)',
+      iconBg: 'rgba(2, 96, 58, 0.34)',
+      label: 'Reachable now',
+    },
+    red: {
+      bg: 'linear-gradient(135deg, #c24d43 0%, #e06a4b 100%)',
+      footer: 'rgba(119, 37, 31, 0.28)',
+      iconBg: 'rgba(122, 41, 34, 0.28)',
+      label: 'Needs attention',
+    },
+  }[tone];
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, height: '100%', borderColor: 'divider' }}>
-      <Stack direction="row" spacing={2} alignItems="center">
-        <Box
-          sx={{
-            color: 'primary.main',
-            bgcolor: 'primary.light',
-            border: '1px solid',
-            borderColor: 'divider',
-            width: 48,
-            height: 48,
-            borderRadius: 1.5,
-            display: 'grid',
-            placeItems: 'center',
-          }}
-        >
-          {icon}
-        </Box>
-        <Box>
-          <Typography color="text.secondary" variant="body2" sx={{ fontWeight: 800 }}>
-            {title}
-          </Typography>
-          <Typography variant="h4" sx={{ fontWeight: 900 }}>
-            {value}
-          </Typography>
-        </Box>
-      </Stack>
+    <Paper
+      variant="outlined"
+      sx={{
+        height: '100%',
+        overflow: 'hidden',
+        borderColor: 'transparent',
+        bgcolor: 'transparent',
+        background: tones.bg,
+        color: '#ffffff',
+        boxShadow: '0 18px 42px rgba(20, 68, 59, 0.13)',
+      }}
+    >
+      <Box sx={{ p: { xs: 2.25, md: 2.75 } }}>
+        <Stack direction="row" spacing={2.25} alignItems="center">
+          <Box
+            sx={{
+              color: '#ffffff',
+              bgcolor: tones.iconBg,
+              width: 72,
+              height: 72,
+              borderRadius: 999,
+              display: 'grid',
+              placeItems: 'center',
+              '& svg': { fontSize: 36 },
+            }}
+          >
+            {icon}
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h3" sx={{ fontWeight: 950, lineHeight: 1 }}>
+              {value.toLocaleString()}
+            </Typography>
+            <Typography sx={{ mt: 0.8, fontSize: 18, fontWeight: 850 }}>
+              {title}
+            </Typography>
+          </Box>
+        </Stack>
+      </Box>
+      <Box sx={{ px: 2.75, py: 1.15, bgcolor: tones.footer }}>
+        <Typography sx={{ fontWeight: 850, color: 'rgba(255,255,255,0.86)' }}>
+          {tones.label}
+        </Typography>
+      </Box>
     </Paper>
   );
 }
