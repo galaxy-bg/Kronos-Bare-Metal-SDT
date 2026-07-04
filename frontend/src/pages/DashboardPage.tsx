@@ -1204,14 +1204,17 @@ export function DashboardPage() {
     <Stack spacing={3}>
       <Box
         sx={{
-          pt: { xs: 0.5, md: 1 },
-          pb: { xs: 0.5, md: 1.5 },
+          pt: { xs: 0.5, md: 1.25 },
+          pb: { xs: 0.5, md: 1.25 },
+          mx: 'auto',
+          maxWidth: 960,
+          textAlign: 'center',
         }}
       >
         <Typography variant="h3" sx={{ fontWeight: 950, color: '#17191c', lineHeight: 1.05 }}>
           Dashboard
         </Typography>
-        <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 760, fontSize: 19, fontWeight: 650 }}>
+        <Typography color="text.secondary" sx={{ mt: 1, mx: 'auto', maxWidth: 760, fontSize: 19, fontWeight: 650 }}>
           Overview of your infrastructure
         </Typography>
       </Box>
@@ -1227,7 +1230,7 @@ export function DashboardPage() {
         </Alert>
       )}
 
-      <Grid container spacing={2}>
+      <Grid container spacing={2} sx={{ maxWidth: 1120, mx: 'auto', width: '100%' }}>
         <Grid item xs={12} md={4}>
           <Metric title="Inventory" value={stats.total_servers} icon={<DnsIcon />} tone="teal" />
         </Grid>
@@ -2217,15 +2220,6 @@ function Metric({ title, value, icon, tone }: { title: string; value: number; ic
         bgcolor: '#ffffff',
         color: 'text.primary',
         boxShadow: '0 16px 34px rgba(23, 46, 38, 0.06)',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 4,
-          bgcolor: tones.accent,
-        },
       }}
     >
       <Box sx={{ p: { xs: 1.8, md: 2.1 } }}>
