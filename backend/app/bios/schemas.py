@@ -11,13 +11,14 @@ class BIOSProfileCreate(BaseModel):
     vendor: str = Field(default="hpe", min_length=1, max_length=64)
     server_model: str | None = Field(default=None, max_length=255)
     server_generation: str | None = Field(default=None, max_length=128)
+    source_type: str = Field(default="custom", max_length=64)
     source_server_id: int | None = None
     base_workload_profile: str | None = Field(default=None, max_length=128)
     raw_attributes: dict[str, Any] = Field(default_factory=dict)
     normalized_attributes: dict[str, Any] = Field(default_factory=dict)
     custom_overrides: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("name", "vendor", "server_model", "server_generation", "base_workload_profile")
+    @field_validator("name", "vendor", "server_model", "server_generation", "source_type", "base_workload_profile")
     @classmethod
     def strip_strings(cls, value: str | None) -> str | None:
         if value is None:

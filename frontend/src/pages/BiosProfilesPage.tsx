@@ -58,9 +58,35 @@ type EditState = {
   overridesJson: string;
 };
 
-const emptyAttributesText = `{
-  "PowerRegulator": "OsControl"
-}`;
+type CreateSource = 'clone' | 'template' | 'existing';
+
+const biosTemplates = [
+  {
+    id: 'os_controlled_power',
+    name: 'OS Controlled Power',
+    description: 'Lets ESXi or Linux control CPU power policy.',
+    workload: '',
+    attributes: { PowerRegulator: 'OsControl' },
+  },
+  {
+    id: 'virtualization_baseline',
+    name: 'Virtualization Baseline',
+    description: 'Small, safe baseline for virtualized hosts.',
+    workload: 'Virtualization-MaxPerformance',
+    attributes: { PowerRegulator: 'OsControl', ProcSMT: 'Enabled' },
+  },
+  {
+    id: 'performance_baseline',
+    name: 'Performance Baseline',
+    description: 'Performance-oriented starting point for compute nodes.',
+    workload: 'GeneralPowerEfficientCompute',
+    attributes: { PowerRegulator: 'StaticHighPerf' },
+  },
+];
+
+function stringifyAttributes(attributes: Record<string, unknown>) {
+  return JSON.stringify(attributes, null, 2);
+}
 
 function valueLabel(value: unknown) {
   if (value === null || value === undefined || value === '') return '-';
@@ -123,11 +149,13 @@ export function BiosProfilesPage() {
   const [settings, setSettings] = useState<GlobalSettings | null>(null);
   const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [createSource, setCreateSource] = useState<CreateSource>('clone');
+  const [templateId, setTemplateId] = useState(biosTemplates[0].id);
+  const [sourceProfileId, setSourceProfileId] = useState('');
   const [profileName, setProfileName] = useState('');
   const [cloneWorkload, setCloneWorkload] = useState('');
-  const [customName, setCustomName] = useState('');
   const [customWorkload, setCustomWorkload] = useState('');
-  const [customAttributesText, setCustomAttributesText] = useState(emptyAttributesText);
+  const [customAttributesText, setCustomAttributesText] = useState(stringifyAttributes(biosTemplates[0].attributes));
   const [customValidation, setCustomValidation] = useState<BIOSProfileValidationResult | null>(null);
   const [workloadOptions, setWorkloadOptions] = useState<BIOSWorkloadOptions | null>(null);
   const [compareResult, setCompareResult] = useState<BIOSCompareResult | null>(null);
@@ -145,6 +173,14 @@ export function BiosProfilesPage() {
   const selectedServer = useMemo(
     () => servers.find((server) => String(server.id) === selectedServerId) ?? null,
     [selectedServerId, servers],
+  );
+  const selectedTemplate = useMemo(
+    () => biosTemplates.find((template) => template.id === templateId) ?? biosTemplates[0],
+    [templateId],
+  );
+  const sourceProfile = useMemo(
+    () => profiles.find((profile) => String(profile.id) === sourceProfileId) ?? null,
+    [profiles, sourceProfileId],
   );
   const realDeployEnabled = Boolean(settings?.bios?.enable_real_apply);
   const deployBlockedReason = !realDeployEnabled
@@ -171,6 +207,7 @@ export function BiosProfilesPage() {
       setSettings(settingsResult.settings);
       if (!selectedServerId && serverRows[0]) setSelectedServerId(String(serverRows[0].id));
       if (!selectedProfileId && profileRows[0]) setSelectedProfileId(String(profileRows[0].id));
+      if (!sourceProfileId && profileRows[0]) setSourceProfileId(String(profileRows[0].id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load BIOS profiles.');
     } finally {
@@ -198,6 +235,22 @@ export function BiosProfilesPage() {
       .catch(() => setWorkloadOptions(null));
   }, [selectedServerId]);
 
+  useEffect(() => {
+    if (createSource !== 'template') return;
+    setCustomWorkload(selectedTemplate.workload || workloadOptions?.current || '');
+    setCustomAttributesText(stringifyAttributes(selectedTemplate.attributes));
+    setCustomValidation(null);
+  }, [createSource, selectedTemplate, workloadOptions?.current]);
+
+  useEffect(() => {
+    if (createSource !== 'existing' || !sourceProfile) return;
+    const attributes = { ...(sourceProfile.final_attributes || {}) };
+    delete attributes.WorkloadProfile;
+    setCustomWorkload(sourceProfile.base_workload_profile || workloadOptions?.current || '');
+    setCustomAttributesText(stringifyAttributes(attributes));
+    setCustomValidation(null);
+  }, [createSource, sourceProfile, workloadOptions?.current]);
+
   async function handleClone() {
     if (!selectedServerId || !profileName.trim()) return;
     setLoading(true);
@@ -222,7 +275,7 @@ export function BiosProfilesPage() {
   }
 
   async function handleValidateCustom() {
-    if (!selectedServerId) return;
+    if (!selectedServerId || createSource === 'clone') return;
     setLoading(true);
     setError(null);
     setMessage(null);
@@ -240,16 +293,16 @@ export function BiosProfilesPage() {
   }
 
   async function handleCreateCustom() {
-    if (!customName.trim() || !customValidation?.valid) return;
+    if (!profileName.trim() || !customValidation?.valid) return;
     setLoading(true);
     setError(null);
     setMessage(null);
     try {
       const attributes = parseAttributes(customAttributesText);
       const profile = await createBIOSProfile({
-        name: customName.trim(),
+        name: profileName.trim(),
         vendor: 'hpe',
-        source_type: 'custom',
+        source_type: createSource === 'existing' ? 'derived_from_profile' : 'template',
         source_server_id: selectedServerId ? Number(selectedServerId) : null,
         base_workload_profile: customWorkload.trim() || null,
         normalized_attributes: {},
@@ -257,14 +310,22 @@ export function BiosProfilesPage() {
       });
       setProfiles((current) => [profile, ...current.filter((item) => item.id !== profile.id)]);
       setSelectedProfileId(String(profile.id));
-      setCustomName('');
+      setProfileName('');
       setCustomValidation(null);
-      setMessage('Custom BIOS profile created.');
+      setMessage('BIOS profile created.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Custom BIOS profile could not be created.');
+      setError(err instanceof Error ? err.message : 'BIOS profile could not be created.');
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleCreateProfile() {
+    if (createSource === 'clone') {
+      await handleClone();
+      return;
+    }
+    await handleCreateCustom();
   }
 
   async function handleCompare() {
@@ -419,35 +480,22 @@ export function BiosProfilesPage() {
       <Paper variant="outlined" sx={{ p: 2.5 }}>
         <Stack spacing={2}>
           <Typography variant="h6" sx={{ fontWeight: 900 }}>
-            Clone From Server
+            Create BIOS Profile
           </Typography>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-            <FormControl size="small" sx={{ flex: '1 1 280px', minWidth: { xs: '100%', md: 280 } }}>
-              <InputLabel>Source Server</InputLabel>
-              <Select label="Source Server" value={selectedServerId} onChange={(event) => setSelectedServerId(event.target.value)}>
-                {servers.map((server) => (
-                  <MenuItem key={server.id} value={String(server.id)}>
-                    {server.hostname || server.serial_number} / {server.bmc_ip || 'no iLO'}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl size="small" sx={{ flex: '1 1 260px', minWidth: { xs: '100%', md: 260 } }}>
-              <InputLabel>Workload Profile</InputLabel>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
+            <FormControl size="small" sx={{ flex: '0 1 260px', minWidth: { xs: '100%', md: 260 } }}>
+              <InputLabel>Source</InputLabel>
               <Select
-                label="Workload Profile"
-                value={cloneWorkload}
-                onChange={(event) => setCloneWorkload(event.target.value)}
-                displayEmpty
+                label="Source"
+                value={createSource}
+                onChange={(event) => {
+                  setCreateSource(event.target.value as CreateSource);
+                  setCustomValidation(null);
+                }}
               >
-                {cloneWorkload && !workloadOptions?.options.includes(cloneWorkload) && (
-                  <MenuItem value={cloneWorkload}>{cloneWorkload}</MenuItem>
-                )}
-                {(workloadOptions?.options || []).map((option) => (
-                  <MenuItem key={option} value={option}>
-                    {workloadOptions?.display_names?.[option] || option}
-                  </MenuItem>
-                ))}
+                <MenuItem value="clone">Clone from server</MenuItem>
+                <MenuItem value="template">Start from template</MenuItem>
+                <MenuItem value="existing">Start from existing profile</MenuItem>
               </Select>
             </FormControl>
             <TextField
@@ -458,74 +506,129 @@ export function BiosProfilesPage() {
               placeholder="DL325 Gen12 Golden BIOS"
               sx={{ flex: '1 1 260px', minWidth: { xs: '100%', md: 260 } }}
             />
-            <Button
-              startIcon={<ContentCopyIcon />}
-              variant="contained"
-              onClick={handleClone}
-              disabled={loading || !selectedServerId || !profileName.trim()}
-              sx={{ minWidth: { xs: '100%', md: 140 }, height: 40 }}
-            >
-              Clone
-            </Button>
           </Stack>
-        </Stack>
-      </Paper>
 
-      <Paper variant="outlined" sx={{ p: 2.5 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6" sx={{ fontWeight: 900 }}>
-            Custom Profile
-          </Typography>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-            <TextField
-              size="small"
-              label="Profile Name"
-              value={customName}
-              onChange={(event) => setCustomName(event.target.value)}
-              placeholder="Virtualization custom BIOS"
-              sx={{ flex: '1 1 260px', minWidth: { xs: '100%', md: 260 } }}
-            />
-            <FormControl size="small" sx={{ flex: '1 1 280px', minWidth: { xs: '100%', md: 280 } }}>
-              <InputLabel>HPE Workload Profile</InputLabel>
-              <Select
-                label="HPE Workload Profile"
-                value={customWorkload}
-                onChange={(event) => {
-                  setCustomWorkload(event.target.value);
-                  setCustomValidation(null);
-                }}
-              >
-                <MenuItem value="">No workload profile</MenuItem>
-                {customWorkload && !workloadOptions?.options.includes(customWorkload) && (
-                  <MenuItem value={customWorkload}>{customWorkload}</MenuItem>
-                )}
-                {(workloadOptions?.options || []).map((option) => (
-                  <MenuItem key={option} value={option}>
-                    {workloadOptions?.display_names?.[option] || option}
+          {createSource === 'clone' && (
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+              <FormControl size="small" sx={{ flex: '1 1 280px', minWidth: { xs: '100%', md: 280 } }}>
+                <InputLabel>Source Server</InputLabel>
+                <Select label="Source Server" value={selectedServerId} onChange={(event) => setSelectedServerId(event.target.value)}>
+                  {servers.map((server) => (
+                    <MenuItem key={server.id} value={String(server.id)}>
+                      {server.hostname || server.serial_number} / {server.bmc_ip || 'no iLO'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ flex: '1 1 260px', minWidth: { xs: '100%', md: 260 } }}>
+                <InputLabel>Workload Profile</InputLabel>
+                <Select
+                  label="Workload Profile"
+                  value={cloneWorkload}
+                  onChange={(event) => setCloneWorkload(event.target.value)}
+                  displayEmpty
+                >
+                  {cloneWorkload && !workloadOptions?.options.includes(cloneWorkload) && (
+                    <MenuItem value={cloneWorkload}>{cloneWorkload}</MenuItem>
+                  )}
+                  {(workloadOptions?.options || []).map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {workloadOptions?.display_names?.[option] || option}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          )}
+
+          {createSource === 'template' && (
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+              <FormControl size="small" sx={{ flex: '1 1 320px', minWidth: { xs: '100%', md: 320 } }}>
+                <InputLabel>Template</InputLabel>
+                <Select label="Template" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+                  {biosTemplates.map((template) => (
+                    <MenuItem key={template.id} value={template.id}>
+                      {template.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Typography variant="body2" color="text.secondary" sx={{ alignSelf: { md: 'center' }, fontWeight: 700 }}>
+                {selectedTemplate.description}
+              </Typography>
+            </Stack>
+          )}
+
+          {createSource === 'existing' && (
+            <FormControl size="small" fullWidth>
+              <InputLabel>Existing Profile</InputLabel>
+              <Select label="Existing Profile" value={sourceProfileId} onChange={(event) => setSourceProfileId(event.target.value)}>
+                {profiles.map((profile) => (
+                  <MenuItem key={profile.id} value={String(profile.id)}>
+                    {profile.name}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
-          </Stack>
-          <TextField
-            label="Attributes JSON or key: value"
-            value={customAttributesText}
-            onChange={(event) => {
-              setCustomAttributesText(event.target.value);
-              setCustomValidation(null);
-            }}
-            multiline
-            minRows={7}
-            helperText="Manual changes are validated against the selected server BIOS registry before save."
-          />
+          )}
+
+          {createSource !== 'clone' && (
+            <>
+              <FormControl size="small" fullWidth>
+                <InputLabel>HPE Workload Profile</InputLabel>
+                <Select
+                  label="HPE Workload Profile"
+                  value={customWorkload}
+                  onChange={(event) => {
+                    setCustomWorkload(event.target.value);
+                    setCustomValidation(null);
+                  }}
+                >
+                  <MenuItem value="">No workload profile</MenuItem>
+                  {customWorkload && !workloadOptions?.options.includes(customWorkload) && (
+                    <MenuItem value={customWorkload}>{customWorkload}</MenuItem>
+                  )}
+                  {(workloadOptions?.options || []).map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {workloadOptions?.display_names?.[option] || option}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                label="Attributes JSON or key: value"
+                value={customAttributesText}
+                onChange={(event) => {
+                  setCustomAttributesText(event.target.value);
+                  setCustomValidation(null);
+                }}
+                multiline
+                minRows={7}
+                helperText="Template/profile values are validated against the selected server BIOS registry before save."
+              />
+            </>
+          )}
+
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-            <Button variant="outlined" onClick={handleValidateCustom} disabled={loading || !selectedServerId}>
-              Validate
+            {createSource !== 'clone' && (
+              <Button variant="outlined" onClick={handleValidateCustom} disabled={loading || !selectedServerId}>
+                Validate
+              </Button>
+            )}
+            <Button
+              startIcon={<ContentCopyIcon />}
+              variant="contained"
+              onClick={handleCreateProfile}
+              disabled={
+                loading ||
+                !profileName.trim() ||
+                (createSource === 'clone' ? !selectedServerId : !customValidation?.valid) ||
+                (createSource === 'existing' && !sourceProfileId)
+              }
+            >
+              {createSource === 'clone' ? 'Clone Profile' : 'Save Profile'}
             </Button>
-            <Button variant="contained" onClick={handleCreateCustom} disabled={loading || !customName.trim() || !customValidation?.valid}>
-              Save Custom
-            </Button>
-            {customValidation && (
+            {customValidation && createSource !== 'clone' && (
               <Chip
                 size="small"
                 color={customValidation.valid ? 'success' : 'error'}

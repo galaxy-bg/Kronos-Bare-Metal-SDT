@@ -34,19 +34,20 @@ class BIOSProfileService:
     def create_custom_profile(self, payload: Any) -> BIOSProfile:
         normalized = dict(payload.normalized_attributes or {})
         overrides = dict(payload.custom_overrides or {})
+        source_type = payload.source_type if payload.source_type in {"custom", "template", "derived_from_profile"} else "custom"
         profile = BIOSProfile(
             name=payload.name,
             vendor=payload.vendor,
             server_model=payload.server_model,
             server_generation=payload.server_generation,
-            source_type="custom",
+            source_type=source_type,
             source_server_id=payload.source_server_id,
             base_workload_profile=payload.base_workload_profile,
             raw_attributes=dict(payload.raw_attributes or {}),
             normalized_attributes=normalized,
             custom_overrides=overrides,
             final_attributes=final_attributes(normalized, overrides, payload.base_workload_profile),
-            metadata_json={"source": "custom"},
+            metadata_json={"source": source_type},
             export_format="json",
         )
         self.db.add(profile)
