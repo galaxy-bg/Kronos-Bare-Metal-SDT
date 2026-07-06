@@ -496,12 +496,26 @@ function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
   );
 }
 
-function IpReachability({ ip, reachable }: { ip: string | null; reachable: boolean | null }) {
+function iloManagementHref(ip: string | null) {
+  const value = ip?.trim();
+  if (!value) return null;
+  return value.startsWith('http://') || value.startsWith('https://') ? value : `https://${value}`;
+}
+
+function IpReachability({ ip, reachable, href }: { ip: string | null; reachable: boolean | null; href?: string | null }) {
+  const label = href ? (
+    <Link href={href} target="_blank" rel="noopener noreferrer" underline="hover" sx={{ fontWeight: 800, color: 'text.primary' }}>
+      {ip}
+    </Link>
+  ) : (
+    <Typography component="span" sx={{ fontWeight: 800 }}>
+      {ip ?? '-'}
+    </Typography>
+  );
+
   return (
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-      <Typography component="span" sx={{ fontWeight: 800 }}>
-        {ip ?? '-'}
-      </Typography>
+      {label}
       {ip && <ReachabilityChip reachable={reachable} />}
     </Stack>
   );
@@ -1402,7 +1416,7 @@ export function DashboardPage() {
                   </TableCell>
                   <TableCell>
                     <Stack spacing={0.75} alignItems="flex-start">
-                      <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />
+                      <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} href={iloManagementHref(server.bmc_ip)} />
                       <CredentialChip server={server} />
                     </Stack>
                   </TableCell>

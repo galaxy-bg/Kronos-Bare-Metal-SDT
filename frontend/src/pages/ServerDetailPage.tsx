@@ -11,6 +11,7 @@ import {
   CircularProgress,
   Divider,
   FormControlLabel,
+  Link,
   MenuItem,
   Paper,
   Stack,
@@ -81,12 +82,32 @@ function ReachabilityChip({ reachable }: { reachable: boolean | null }) {
   );
 }
 
-function IpReachability({ ip, reachable }: { ip: string | null; reachable: boolean | null }) {
+function iloManagementHref(ip: string | null) {
+  const value = ip?.trim();
+  if (!value) return null;
+  return value.startsWith('http://') || value.startsWith('https://') ? value : `https://${value}`;
+}
+
+function IpReachability({ ip, reachable, href }: { ip: string | null; reachable: boolean | null; href?: string | null }) {
+  const label = href ? (
+    <Link
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      underline="hover"
+      sx={{ fontWeight: 800, color: 'text.primary', textAlign: 'right', overflowWrap: 'anywhere' }}
+    >
+      {ip}
+    </Link>
+  ) : (
+    <Typography component="span" sx={{ fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>
+      {ip ?? '-'}
+    </Typography>
+  );
+
   return (
     <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end" flexWrap="wrap" useFlexGap>
-      <Typography component="span" sx={{ fontWeight: 800, textAlign: 'right', overflowWrap: 'anywhere' }}>
-        {ip ?? '-'}
-      </Typography>
+      {label}
       {ip && <ReachabilityChip reachable={reachable} />}
     </Stack>
   );
@@ -1025,7 +1046,7 @@ export function ServerDetailPage() {
               ['Agent Version', server.management_config_json?.agent?.version ?? '-'],
               ['Agent Build', server.management_config_json?.agent?.build ?? '-'],
               ['Agent Reported', server.management_config_json?.agent?.reported_at ? formatDate(server.management_config_json.agent.reported_at) : '-'],
-              ['iLO / iDRAC / IPMI IP', <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} />],
+              ['iLO / iDRAC / IPMI IP', <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} href={iloManagementHref(server.bmc_ip)} />],
               ['Subnet', server.management_config_json?.subnet ?? '-'],
               ['Gateway', server.management_config_json?.gateway ?? '-'],
               ['DNS', server.management_config_json?.dns ?? '-'],
