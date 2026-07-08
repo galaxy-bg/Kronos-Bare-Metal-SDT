@@ -303,7 +303,19 @@ function InventoryTable({
   );
 }
 
-function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inventory: Record<string, unknown> }) {
+type InventorySectionKey = 'device' | 'firmware' | 'storage';
+
+function StorageRaidSummary({
+  server,
+  inventory,
+  expanded,
+  onExpandedChange,
+}: {
+  server: ServerDetail;
+  inventory: Record<string, unknown>;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}) {
   const raid = asRecord(inventory.raid);
   const controllers = asArray(raid.controllers);
   const drives = asArray(raid.drives);
@@ -410,6 +422,8 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
       title="Storage & RAID"
       empty={!rows.length}
       emptyText="No Redfish storage data has been collected yet. Run inventory refresh after iLO credentials are validated."
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" label={`${textField(raid, ['controller_count'], '0')} controllers`} />
@@ -781,7 +795,15 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
   );
 }
 
-function FirmwareInventorySummary({ inventory }: { inventory: Record<string, unknown> }) {
+function FirmwareInventorySummary({
+  inventory,
+  expanded,
+  onExpandedChange,
+}: {
+  inventory: Record<string, unknown>;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}) {
   const firmware = asRecord(inventory.firmware_inventory);
   const rows = asArray(firmware.items).map((item, index) => {
     const resource = resourceOf(item);
@@ -800,6 +822,8 @@ function FirmwareInventorySummary({ inventory }: { inventory: Record<string, unk
       title="Firmware Inventory"
       empty={!rows.length}
       emptyText="No firmware inventory has been collected yet."
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
     >
       <InventoryTable
         columns={[
@@ -816,7 +840,15 @@ function FirmwareInventorySummary({ inventory }: { inventory: Record<string, unk
   );
 }
 
-function DeviceInventorySummary({ inventory }: { inventory: Record<string, unknown> }) {
+function DeviceInventorySummary({
+  inventory,
+  expanded,
+  onExpandedChange,
+}: {
+  inventory: Record<string, unknown>;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}) {
   const deviceInventory = asRecord(inventory.device_inventory);
   const rows = asArray(deviceInventory.devices).map((item, index) => {
     const record = asRecord(item);
@@ -838,7 +870,8 @@ function DeviceInventorySummary({ inventory }: { inventory: Record<string, unkno
       title="Device Inventory"
       empty={!rows.length}
       emptyText="No device inventory has been collected yet."
-      defaultExpanded
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" label={`${textField(summary, ['chassis_count'], '0')} chassis`} />
@@ -867,6 +900,8 @@ function ReadableSection({
   empty,
   emptyText,
   defaultExpanded = false,
+  expanded,
+  onExpandedChange,
   children,
 }: {
   title: string;
@@ -874,14 +909,23 @@ function ReadableSection({
   empty: boolean;
   emptyText: string;
   defaultExpanded?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [localExpanded, setLocalExpanded] = useState(defaultExpanded);
+  const isExpanded = expanded ?? localExpanded;
 
   return (
     <Accordion
-      expanded={expanded}
-      onChange={(_, nextExpanded) => setExpanded(nextExpanded)}
+      expanded={isExpanded}
+      onChange={(_, nextExpanded) => {
+        if (onExpandedChange) {
+          onExpandedChange(nextExpanded);
+          return;
+        }
+        setLocalExpanded(nextExpanded);
+      }}
       disableGutters
       variant="outlined"
       sx={{
@@ -960,6 +1004,7 @@ export function ServerDetailPage() {
   const [server, setServer] = useState<ServerDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openInventorySection, setOpenInventorySection] = useState<InventorySectionKey>('device');
 
   useEffect(() => {
     async function load() {
@@ -1073,9 +1118,22 @@ export function ServerDetailPage() {
 
       <CollapsiblePanel title="Inventory Summary" defaultExpanded>
         <Stack spacing={2.5}>
-          <DeviceInventorySummary inventory={latestInventory} />
-          <FirmwareInventorySummary inventory={latestInventory} />
-          <StorageRaidSummary server={server} inventory={latestInventory} />
+          <DeviceInventorySummary
+            inventory={latestInventory}
+            expanded={openInventorySection === 'device'}
+            onExpandedChange={(nextExpanded) => nextExpanded && setOpenInventorySection('device')}
+          />
+          <FirmwareInventorySummary
+            inventory={latestInventory}
+            expanded={openInventorySection === 'firmware'}
+            onExpandedChange={(nextExpanded) => nextExpanded && setOpenInventorySection('firmware')}
+          />
+          <StorageRaidSummary
+            server={server}
+            inventory={latestInventory}
+            expanded={openInventorySection === 'storage'}
+            onExpandedChange={(nextExpanded) => nextExpanded && setOpenInventorySection('storage')}
+          />
         </Stack>
       </CollapsiblePanel>
 
