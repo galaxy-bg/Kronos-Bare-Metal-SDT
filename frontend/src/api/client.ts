@@ -162,6 +162,11 @@ export async function markActionCompleted(actionId: number): Promise<ServerActio
   return response.data;
 }
 
+export async function cancelAction(actionId: number): Promise<ServerAction> {
+  const response = await api.post<ServerAction>(`/api/v1/servers/actions/${actionId}/cancel`);
+  return response.data;
+}
+
 export async function deleteServer(serverId: number): Promise<void> {
   await api.delete(`/api/v1/servers/${serverId}`);
 }

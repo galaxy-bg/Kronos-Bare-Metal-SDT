@@ -23,7 +23,7 @@ import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Link as RouterLink } from 'react-router-dom';
-import { executeBiosRebootAction, executeStorageApplyAction, fetchGlobalSettings, fetchRecentActions, fetchServers, markActionCompleted } from '../api/client';
+import { cancelAction, executeBiosRebootAction, executeStorageApplyAction, fetchGlobalSettings, fetchRecentActions, fetchServers, markActionCompleted } from '../api/client';
 import type { GlobalSettings, ServerAction, ServerSummary } from '../types';
 
 const fallbackSettings: GlobalSettings['task_footer'] = {
@@ -109,6 +109,7 @@ function StatusChip({ status }: { status: string }) {
     running: { bg: '#e9f6ff', color: '#236b93', border: '#bde1f4' },
     succeeded: { bg: '#e7f7ef', color: '#1f7d55', border: '#bfe8d2' },
     failed: { bg: '#fff1ef', color: '#b23b32', border: '#f2c4bf' },
+    canceled: { bg: '#f3f5f5', color: '#62666f', border: '#dfe5e3' },
   };
   const style = colors[status] ?? { bg: '#f3f5f5', color: '#62666f', border: '#dfe5e3' };
   return <Chip size="small" label={status.toUpperCase()} sx={{ bgcolor: style.bg, color: style.color, border: '1px solid', borderColor: style.border }} />;
@@ -165,6 +166,16 @@ export function TaskFooter() {
     }
   }
 
+  async function cancelTask(action: ServerAction) {
+    setExecutingActionId(action.id);
+    try {
+      await cancelAction(action.id);
+      await refresh();
+    } finally {
+      setExecutingActionId(null);
+    }
+  }
+
   useEffect(() => {
     refresh().catch(() => undefined);
   }, []);
@@ -195,7 +206,9 @@ export function TaskFooter() {
       <Box sx={{ px: { xs: 1.5, md: 3 }, py: 1 }}>
         <Stack direction="row" alignItems="center" spacing={1.25}>
           <PendingActionsIcon fontSize="small" sx={{ color: 'primary.main' }} />
-          <Typography sx={{ fontWeight: 900 }}>Tasks & Jobs</Typography>
+          <Link component={RouterLink} to="/tasks" underline="hover" sx={{ fontWeight: 900, color: 'text.primary' }}>
+            Tasks & Jobs
+          </Link>
           <Chip size="small" label={`${activeCount} active`} sx={{ bgcolor: activeCount ? '#fff8df' : '#f3f5f5', color: activeCount ? '#75611d' : '#62666f' }} />
           {actions[0] && (
             <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', md: 'block' }, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -265,9 +278,14 @@ export function TaskFooter() {
                     </TableCell>
                     <TableCell align="right">
                       {action.action_type === 'hpe_storage_apply_plan' && action.status === 'planned' && (
-                        <Button size="small" variant="contained" color="warning" onClick={() => executeStorageApply(action)} disabled={executingActionId === action.id}>
-                          {executingActionId === action.id ? 'Running...' : 'Execute'}
-                        </Button>
+                        <Stack direction="row" spacing={0.75} justifyContent="flex-end">
+                          <Button size="small" variant="contained" color="warning" onClick={() => executeStorageApply(action)} disabled={executingActionId === action.id}>
+                            {executingActionId === action.id ? 'Running...' : 'Execute'}
+                          </Button>
+                          <Button size="small" variant="outlined" color="inherit" onClick={() => cancelTask(action)} disabled={executingActionId === action.id}>
+                            Cancel
+                          </Button>
+                        </Stack>
                       )}
                       {action.action_type === 'bios_reboot_after_apply' && action.status === 'planned' && (
                         <Stack direction="row" spacing={0.75} justifyContent="flex-end">
@@ -277,7 +295,15 @@ export function TaskFooter() {
                           <Button size="small" variant="outlined" onClick={() => markTaskCompleted(action)} disabled={executingActionId === action.id}>
                             Mark Done
                           </Button>
+                          <Button size="small" variant="outlined" color="inherit" onClick={() => cancelTask(action)} disabled={executingActionId === action.id}>
+                            Cancel
+                          </Button>
                         </Stack>
+                      )}
+                      {action.status !== 'planned' && action.status === 'pending' && (
+                        <Button size="small" variant="outlined" color="inherit" onClick={() => cancelTask(action)} disabled={executingActionId === action.id}>
+                          Cancel
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>

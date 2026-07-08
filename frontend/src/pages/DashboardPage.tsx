@@ -60,6 +60,7 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   bulkDeleteServers,
+  cancelAction,
   createIloEnrollment,
   createIloLicenseAction,
   createIloNetworkAction,
@@ -306,6 +307,13 @@ function ActionStatusChip({ status }: { status: string }) {
       bg: '#fff1ef',
       border: '#f2c4bf',
       icon: <ErrorOutlineIcon />,
+    },
+    canceled: {
+      label: 'Canceled',
+      color: '#62666f',
+      bg: '#f3f5f5',
+      border: '#dfe5e3',
+      icon: <CancelIcon />,
     },
   };
   const variant = variants[status] ?? {
@@ -607,7 +615,7 @@ export function DashboardPage() {
   const serverById = new Map(servers.map((server) => [server.id, server]));
   const agentReachableCount = servers.filter((server) => server.agent_reachable === true).length;
   const iloReachableCount = servers.filter((server) => server.bmc_reachable === true).length;
-  const activeActionCount = actions.filter((action) => action.status === 'pending' || action.status === 'running').length;
+  const activeActionCount = actions.filter((action) => action.status === 'pending' || action.status === 'running' || action.status === 'planned').length;
   const taskRefreshLabel = activeActionCount > 0 ? `${ACTIVE_TASK_REFRESH_MS / 1000}s` : `${IDLE_TASK_REFRESH_MS / 1000}s`;
   const selectedServerCanRefreshInventory = Boolean(selectedServer?.bmc_ip && hasUsableActionCredential(selectedServer));
 
@@ -675,6 +683,19 @@ export function DashboardPage() {
       await refreshTasks();
     } catch {
       setError('Task could not be marked completed.');
+    } finally {
+      setExecutingActionId(null);
+    }
+  }
+
+  async function cancelTask(action: ServerAction) {
+    setExecutingActionId(action.id);
+    try {
+      const updated = await cancelAction(action.id);
+      setActions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await refreshTasks();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : 'Failed to cancel task');
     } finally {
       setExecutingActionId(null);
     }
@@ -1592,15 +1613,26 @@ export function DashboardPage() {
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.75} justifyContent="flex-end">
                           {action.action_type === 'hpe_storage_apply_plan' && action.status === 'planned' && (
-                            <Button
-                              size="small"
-                              variant="contained"
-                              color="warning"
-                              onClick={() => executeStorageApply(action)}
-                              disabled={executingActionId === action.id}
-                            >
-                              {executingActionId === action.id ? 'Running...' : 'Execute'}
-                            </Button>
+                            <>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="warning"
+                                onClick={() => executeStorageApply(action)}
+                                disabled={executingActionId === action.id}
+                              >
+                                {executingActionId === action.id ? 'Running...' : 'Execute'}
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="inherit"
+                                onClick={() => cancelTask(action)}
+                                disabled={executingActionId === action.id}
+                              >
+                                Cancel
+                              </Button>
+                            </>
                           )}
                           {action.action_type === 'bios_reboot_after_apply' && action.status === 'planned' && (
                             <>
@@ -1621,7 +1653,27 @@ export function DashboardPage() {
                               >
                                 Mark Done
                               </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="inherit"
+                                onClick={() => cancelTask(action)}
+                                disabled={executingActionId === action.id}
+                              >
+                                Cancel
+                              </Button>
                             </>
+                          )}
+                          {action.status === 'pending' && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="inherit"
+                              onClick={() => cancelTask(action)}
+                              disabled={executingActionId === action.id}
+                            >
+                              Cancel
+                            </Button>
                           )}
                         </Stack>
                       </TableCell>

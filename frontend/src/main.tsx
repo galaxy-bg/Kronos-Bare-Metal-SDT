@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { IloEnrollmentPage } from './pages/IloEnrollmentPage';
 import { ServerDetailPage } from './pages/ServerDetailPage';
 import { SetupPage } from './pages/SetupPage';
+import { TasksPage } from './pages/TasksPage';
 import './styles.css';
 
 const theme = createTheme({
@@ -117,6 +118,7 @@ const router = createBrowserRouter([
       { path: 'bios/profiles', element: <BiosProfilesPage /> },
       { path: 'enroll/ilo/:token', element: <IloEnrollmentPage /> },
       { path: 'setup', element: <SetupPage /> },
+      { path: 'tasks', element: <TasksPage /> },
       { path: 'servers/:serverId', element: <ServerDetailPage /> },
     ],
   },

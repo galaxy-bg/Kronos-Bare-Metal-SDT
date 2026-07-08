@@ -1068,6 +1068,27 @@ def mark_action_completed(action_id: int, db: Session = Depends(get_db)) -> dict
     return action_to_read(action)
 
 
+@router.post("/actions/{action_id}/cancel", response_model=ServerActionRead)
+def cancel_action(action_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    action = db.get(ServerAction, action_id)
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
+    if action.status not in {"planned", "pending"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only planned or pending actions can be canceled.")
+
+    now = datetime.now(UTC)
+    action.status = "canceled"
+    action.started_at = action.started_at or now
+    action.completed_at = now
+    result = dict(action.result_json or {})
+    result["message"] = "Task was canceled by operator."
+    result["canceled"] = True
+    action.result_json = result
+    db.commit()
+    db.refresh(action)
+    return action_to_read(action)
+
+
 @router.post("/{server_id}/deregister", response_model=ServerRead)
 def deregister_server(server_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     server = db.get(Server, server_id)

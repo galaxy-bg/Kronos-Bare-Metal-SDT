@@ -2,6 +2,7 @@ import { AppBar, Box, Button, Container, Stack, Toolbar, Typography } from '@mui
 import TuneIcon from '@mui/icons-material/Tune';
 import SettingsIcon from '@mui/icons-material/Settings';
 import StorageIcon from '@mui/icons-material/Storage';
+import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import { Link as RouterLink, Outlet } from 'react-router-dom';
 import { TaskFooter } from './components/TaskFooter';
 
@@ -45,6 +46,9 @@ export default function App() {
               </Button>
               <Button component={RouterLink} to="/bios/profiles" startIcon={<TuneIcon />} variant="outlined" size="small">
                 BIOS Profiles
+              </Button>
+              <Button component={RouterLink} to="/tasks" startIcon={<PendingActionsIcon />} variant="outlined" size="small">
+                Tasks
               </Button>
               <Button component={RouterLink} to="/setup" startIcon={<SettingsIcon />} variant="outlined" size="small">
                 Settings
