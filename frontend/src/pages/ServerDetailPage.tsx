@@ -410,7 +410,6 @@ function StorageRaidSummary({ server, inventory }: { server: ServerDetail; inven
       title="Storage & RAID"
       empty={!rows.length}
       emptyText="No Redfish storage data has been collected yet. Run inventory refresh after iLO credentials are validated."
-      defaultExpanded
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" label={`${textField(raid, ['controller_count'], '0')} controllers`} />
@@ -839,6 +838,7 @@ function DeviceInventorySummary({ inventory }: { inventory: Record<string, unkno
       title="Device Inventory"
       empty={!rows.length}
       emptyText="No device inventory has been collected yet."
+      defaultExpanded
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip size="small" label={`${textField(summary, ['chassis_count'], '0')} chassis`} />
