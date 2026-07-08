@@ -586,6 +586,13 @@ def discover_server_by_ilo(payload: ManualIloDiscoveryRequest, db: Session = Dep
                 "verified_at": now.isoformat(),
                 "source": "manual-ilo-discovery",
             },
+            "managed_user": {
+                "username": credential.username,
+                "password": credential.password,
+                "created": True,
+                "created_at": now.isoformat(),
+                "source": "manual-ilo-discovery-existing",
+            } if credential.username == DEFAULT_MANAGED_ILO_USER else None,
             "vendor": "HPE",
             "type": "iLO",
             "ip": bmc_ip,

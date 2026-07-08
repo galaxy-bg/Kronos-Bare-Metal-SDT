@@ -111,7 +111,19 @@ function credentialFor(server: ServerSummary) {
 }
 
 function managedUserFor(server: ServerSummary) {
-  return server.management_config_json?.managed_user ?? null;
+  const managedUser = server.management_config_json?.managed_user;
+  if (managedUser?.username && managedUser?.password) return managedUser;
+  const credential = server.management_config_json?.credential;
+  if (credential?.username === 'hpadmin' && credential?.password) {
+    return {
+      username: credential.username,
+      password: credential.password,
+      created: true,
+      created_at: credential.verified_at,
+      source: credential.source ?? 'validated-credential',
+    };
+  }
+  return null;
 }
 
 function actionCredentialFor(server: ServerSummary) {
@@ -1157,7 +1169,7 @@ export function DashboardPage() {
       'iLO DNS Name',
       'iLO Credential Validated',
       'iLO Credential Validated At',
-      'Administrator Username',
+      'Validated iLO Username',
       'Managed iLO Username',
       'Managed iLO User Created',
       'Readiness',
@@ -1169,7 +1181,7 @@ export function DashboardPage() {
       'Status',
       'Last Seen',
     ];
-    const passwordHeader = ['Administrator Password', 'Managed iLO Password', 'iLO License Key'];
+    const passwordHeader = ['Validated iLO Password', 'Managed iLO Password', 'iLO License Key'];
     const nicHeader = ['NIC Interfaces', 'NIC MAC Addresses'];
     const header = [
       ...baseHeader,

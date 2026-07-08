@@ -302,6 +302,16 @@ def complete_action(action_id: int, payload: AgentActionComplete, db: Session = 
                     "source": "verify-credential",
                 }
             )
+        elif isinstance(auth, dict) and auth.get("username") == "hpadmin" and auth.get("password"):
+            current["managed_user"] = compact_management_config(
+                {
+                    "username": auth.get("username"),
+                    "password": auth.get("password"),
+                    "created": True,
+                    "created_at": action.completed_at.isoformat() if action.completed_at else None,
+                    "source": original_payload.get("source") or "verify-credential-existing",
+                }
+            )
         license_result = result.get("license") if isinstance(result, dict) else None
         if isinstance(license_result, dict):
             current["license"] = compact_license_result(license_result)
