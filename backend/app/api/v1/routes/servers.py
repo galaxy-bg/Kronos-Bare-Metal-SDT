@@ -58,6 +58,26 @@ def compact_dict(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item is not None}
 
 
+def compact_management_network(value: dict[str, Any] | None, updated_at: datetime | None = None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return compact_dict(
+        {
+            "vendor": value.get("vendor"),
+            "type": value.get("type"),
+            "ip": value.get("ip"),
+            "subnet": value.get("subnet"),
+            "gateway": value.get("gateway"),
+            "dns": value.get("dns"),
+            "ntp": value.get("ntp"),
+            "vlan": value.get("vlan"),
+            "redfish_endpoint": value.get("redfish_endpoint"),
+            "redfish_ethernet_interface": value.get("redfish_ethernet_interface"),
+            "management_network_updated_at": updated_at.isoformat() if updated_at else None,
+        }
+    )
+
+
 def redfish_system_identity(inventory_json: dict[str, Any]) -> dict[str, str | None]:
     system = inventory_json.get("system") if isinstance(inventory_json, dict) else None
     if not isinstance(system, dict):
@@ -175,7 +195,7 @@ def enriched_inventory_json(server: Server, inventory_json: dict[str, Any] | Non
         if not bmc.get("ip"):
             bmc["detected_by"] = "control-plane-merged"
         bmc["ip"] = server.bmc_ip
-    for key in ("subnet", "gateway", "dns", "vlan", "redfish_endpoint", "redfish_ethernet_interface"):
+    for key in ("subnet", "gateway", "dns", "ntp", "vlan", "redfish_endpoint", "redfish_ethernet_interface"):
         if config.get(key) is not None:
             bmc[key] = config[key]
     if config.get("dns_name"):
@@ -541,10 +561,7 @@ def update_server_after_ilo_user_action(
     license_result = result.get("license") if isinstance(result.get("license"), dict) else None
 
     if isinstance(management_network, dict):
-        for key in ("vendor", "type", "ip", "subnet", "gateway", "dns", "ntp", "vlan", "redfish_endpoint", "redfish_ethernet_interface"):
-            if management_network.get(key) is not None:
-                current[key] = management_network.get(key)
-        current["management_network_updated_at"] = action.completed_at.isoformat() if action.completed_at else None
+        current.update(compact_management_network(management_network, action.completed_at))
 
     current["credential"] = compact_management_config(
         {
@@ -668,6 +685,7 @@ def discover_server_by_ilo(payload: ManualIloDiscoveryRequest, db: Session = Dep
             "vendor": "HPE",
             "type": "iLO",
             "ip": bmc_ip,
+            **compact_management_network(inventory_json.get("management_network"), now),
         }
     )
 
