@@ -1014,7 +1014,9 @@ def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Sessi
             },
         },
         result_json={
-            "message": "Storage apply request staged. Executor is not enabled yet; no storage changes were applied.",
+            "message": (
+                "Storage apply request staged. No storage changes were applied yet; run Execute to use the selected storage executor."
+            ),
             "plan_checks": plan["checks"],
             "plan_warnings": plan["warnings"],
         },

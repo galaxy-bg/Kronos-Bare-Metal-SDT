@@ -809,7 +809,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
             {plan.eligible && (
               <Stack spacing={1.25} sx={{ border: '1px solid', borderColor: '#f0d9a3', bgcolor: '#fffaf0', borderRadius: 1, p: 1.5 }}>
                 <Alert severity="warning">
-                  Stage only. This records a guarded storage apply request; no storage changes are executed until the backend executor is enabled.
+                  Stage only. This records a guarded storage apply request; no storage changes are executed until you run Execute from Tasks.
                 </Alert>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', md: 'center' }}>
                   <TextField
