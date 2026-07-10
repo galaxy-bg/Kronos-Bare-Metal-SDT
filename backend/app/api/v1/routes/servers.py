@@ -264,6 +264,7 @@ def raid_drive_summary(drive: dict[str, Any]) -> dict[str, Any]:
         "state": status_payload.get("State"),
         "health": status_payload.get("Health"),
         "volume_count": volume_count,
+        "writable_volume_collection": drive.get("writable_volume_collection"),
         "location": raid_drive_label(drive),
     }
 
@@ -347,6 +348,13 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
             "non-raid-redfish-support",
             False,
             "Non-RAID/JBOD apply is not supported by this HPE MR Redfish path; the controller returns UnsupportedOperation.",
+        )
+    else:
+        missing_writable_collection = [drive for drive in selected_summaries if not drive.get("writable_volume_collection")]
+        add_check(
+            "redfish-volume-collection",
+            not missing_writable_collection,
+            "Selected drives must be linked to a writable Redfish Volumes collection before RAID can be applied.",
         )
 
     add_check(
@@ -1378,6 +1386,8 @@ def validate_os_storage_action(server_id: int, db: Session = Depends(get_db)) ->
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
     if server.status == "deregistered":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Server is deregistered")
+    if not server.agent_ip:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OS storage validation requires an online agent.")
 
     action = ServerAction(
         server_id=server.id,
@@ -1401,6 +1411,8 @@ def hpe_refresh_storage_inventory_action(server_id: int, db: Session = Depends(g
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
     if server.status == "deregistered":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Server is deregistered")
+    if not server.agent_ip:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="HPE storage inventory requires an online agent.")
 
     action = ServerAction(
         server_id=server.id,

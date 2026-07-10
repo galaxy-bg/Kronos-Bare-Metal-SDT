@@ -747,12 +747,15 @@ class HpeIloAdapter(BaseVendorAdapter):
 
         for storage_member in storage_members:
             storage_path = str(storage_member.get("path") or "")
+            resource = storage_member.get("resource") if isinstance(storage_member.get("resource"), dict) else {}
+            volumes_link = resource.get("Volumes") if isinstance(resource, dict) else None
+            volume_collection = str(volumes_link.get("@odata.id")) if isinstance(volumes_link, dict) and volumes_link.get("@odata.id") else None
             for controller in storage_member.get("controllers", []):
                 if isinstance(controller, dict):
                     controllers.append({"source": storage_path, **controller})
             for drive in storage_member.get("drives", []):
                 if isinstance(drive, dict):
-                    drives.append({"source": storage_path, **drive})
+                    drives.append({"source": storage_path, "writable_volume_collection": volume_collection, **drive})
             for volume in storage_member.get("volumes", []):
                 if isinstance(volume, dict):
                     volumes.append({"source": storage_path, **volume})
@@ -801,12 +804,19 @@ class HpeIloAdapter(BaseVendorAdapter):
                     "message": "Not enough Redfish-visible drives for a RAID recommendation yet.",
                 }
             )
+        writable_drive_count = len([drive for drive in drives if drive.get("writable_volume_collection")])
+        apply_supported = writable_drive_count > 0
 
         return {
-            "apply_supported": True,
-            "apply_note": "Guarded RAID apply is enabled with explicit destructive confirmation.",
+            "apply_supported": apply_supported,
+            "apply_note": (
+                "Guarded RAID apply is enabled with explicit destructive confirmation."
+                if apply_supported
+                else "RAID apply is not available because Redfish did not expose a writable Volumes collection for the visible drives."
+            ),
             "controller_count": len(controllers),
             "drive_count": drive_count,
+            "writable_drive_count": writable_drive_count,
             "volume_count": len(volumes),
             "controllers": controllers,
             "drives": drives,
