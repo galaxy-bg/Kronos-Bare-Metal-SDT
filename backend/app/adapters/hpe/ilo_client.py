@@ -279,6 +279,38 @@ class HpeIloAdapter(BaseVendorAdapter):
         result = self._patch(system_path, {"IndicatorLED": normalized})
         return {"vendor": self.vendor, "state": normalized, "result": result}
 
+    def create_ilo_user(self, username: str, password: str) -> dict[str, Any]:
+        account_path, account = self._account_for_username(username)
+        if account_path:
+            return {
+                "vendor": self.vendor,
+                "backend": "redfish",
+                "endpoint": self.base_url,
+                "existing": True,
+                "username": username,
+                "path": account_path,
+                "account": account,
+                "message": f"iLO user {username} already exists.",
+            }
+
+        payload = {
+            "UserName": username,
+            "Password": password,
+            "RoleId": "Administrator",
+            "Enabled": True,
+        }
+        result = self._post("/redfish/v1/AccountService/Accounts/", payload)
+        return {
+            "vendor": self.vendor,
+            "backend": "redfish",
+            "endpoint": self.base_url,
+            "existing": False,
+            "username": username,
+            "payload": {"UserName": username, "RoleId": "Administrator", "Enabled": True},
+            "account": result,
+            "message": f"iLO user {username} was created.",
+        }
+
     def power_status(self) -> dict[str, Any]:
         inventory = self.get_system_inventory()
         system = inventory.get("system") if isinstance(inventory, dict) else {}
@@ -442,6 +474,16 @@ class HpeIloAdapter(BaseVendorAdapter):
             if isinstance(member, dict) and member.get("@odata.id"):
                 paths.append(str(member["@odata.id"]))
         return paths
+
+    def _account_for_username(self, username: str) -> tuple[str | None, dict[str, Any] | None]:
+        collection = self._get("/redfish/v1/AccountService/Accounts/")
+        for account_path in self._member_paths(collection):
+            account = self._safe_get(account_path)
+            if not account:
+                continue
+            if str(account.get("UserName") or "").lower() == username.lower():
+                return account_path, account
+        return None, None
 
     def _odata_path(self, value: object) -> str | None:
         if isinstance(value, dict) and value.get("@odata.id"):

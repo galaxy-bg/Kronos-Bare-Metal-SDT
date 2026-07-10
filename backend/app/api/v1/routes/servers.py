@@ -518,6 +518,71 @@ def require_ilo_auth(auth_username: str | None, auth_password: str | None) -> tu
     return auth_username, auth_password
 
 
+def compact_management_config(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item is not None}
+
+
+def should_execute_ilo_action_in_control_plane(server: Server) -> bool:
+    discovery = (server.management_config_json or {}).get("discovery")
+    return server.agent_ip is None or (isinstance(discovery, dict) and discovery.get("source") == "manual_ilo")
+
+
+def update_server_after_ilo_user_action(
+    server: Server,
+    action: ServerAction,
+    result: dict[str, Any],
+    auth_username: str,
+    auth_password: str,
+) -> None:
+    current = compact_management_config(dict(server.management_config_json or {}))
+
+    health_result = result.get("health") if isinstance(result.get("health"), dict) else None
+    license_result = result.get("license") if isinstance(result.get("license"), dict) else None
+
+    current["credential"] = compact_management_config(
+        {
+            "username": auth_username,
+            "password": auth_password,
+            "verified": True,
+            "verified_at": action.completed_at.isoformat() if action.completed_at else None,
+            "source": "control-plane-create-user-action",
+        }
+    )
+    current["managed_user"] = compact_management_config(
+        {
+            "username": action.payload_json.get("username"),
+            "password": action.payload_json.get("password"),
+            "created": True,
+            "created_at": action.completed_at.isoformat() if action.completed_at else None,
+            "source": "control-plane-create-user-action",
+            "existing": bool(result.get("existing")),
+        }
+    )
+    if isinstance(license_result, dict):
+        current["license"] = compact_management_config(
+            {
+                "edition": license_result.get("edition"),
+                "installed": license_result.get("installed"),
+                "detected_by": license_result.get("detected_by"),
+                "license_name": license_result.get("license_name"),
+                "license_tier": license_result.get("license_tier"),
+                "license_state": license_result.get("license_state"),
+            }
+        )
+    if isinstance(health_result, dict):
+        current["health"] = compact_management_config(
+            {
+                "overall": health_result.get("overall"),
+                "manager": health_result.get("manager"),
+                "system": health_result.get("system"),
+                "chassis": health_result.get("chassis"),
+                "power_state": health_result.get("power_state"),
+                "detected_by": health_result.get("detected_by"),
+            }
+        )
+    server.management_config_json = compact_management_config(current)
+
+
 @router.get("", response_model=list[ServerRead])
 def list_servers(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     refresh_server_statuses(db)
@@ -1170,6 +1235,42 @@ def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Se
     db.add(action)
     db.commit()
     db.refresh(action)
+
+    if should_execute_ilo_action_in_control_plane(server):
+        action.status = "running"
+        action.started_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(action)
+
+        adapter = HpeIloAdapter(
+            AdapterContext(
+                vendor="hpe",
+                model=server.model,
+                bmc_ip=server.bmc_ip,
+                credential=BmcCredential(username=auth_username, password=auth_password),
+            )
+        )
+        try:
+            result = adapter.create_ilo_user(payload.username, payload.password)
+            try:
+                result["license"] = adapter.get_ilo_license()
+            except RedfishError as exc:
+                result["license_error"] = str(exc)
+            try:
+                result["health"] = adapter.get_health_summary()
+            except RedfishError as exc:
+                result["health_error"] = str(exc)
+            action.status = "succeeded"
+            action.result_json = result
+            action.completed_at = datetime.now(UTC)
+            update_server_after_ilo_user_action(server, action, result, auth_username, auth_password)
+        except RedfishError as exc:
+            action.status = "failed"
+            action.error_message = str(exc)
+            action.completed_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(action)
+
     return action_to_read(action)
 
 
