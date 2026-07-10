@@ -338,7 +338,8 @@ class HpeIloAdapter(BaseVendorAdapter):
                     "type": "iLO",
                     "ip": address,
                     "subnet": entry.get("SubnetMask"),
-                    "gateway": entry.get("Gateway"),
+                    "gateway": self._gateway_value(entry, ethernet),
+                    "gateway_source": self._gateway_source(entry, ethernet),
                     "dns": self._dns_servers(ethernet),
                     "ntp": self._ntp_servers(manager_path),
                     "vlan": self._vlan_value(ethernet),
@@ -556,6 +557,65 @@ class HpeIloAdapter(BaseVendorAdapter):
             if values:
                 return ", ".join(values)
         return None
+
+    def _gateway_value(self, entry: dict[str, Any], ethernet: dict[str, Any]) -> str | None:
+        gateway = self._valid_gateway(entry.get("Gateway"))
+        if gateway:
+            return gateway
+
+        for route in self._oem_static_routes(ethernet):
+            destination = self._string_value(route.get("Destination"))
+            subnet = self._string_value(route.get("SubnetMask"))
+            if destination not in {None, "0.0.0.0"}:
+                continue
+            if subnet not in {None, "0.0.0.0"}:
+                continue
+            gateway = self._valid_gateway(route.get("Gateway"))
+            if gateway:
+                return gateway
+
+        address = self._string_value(entry.get("Address"))
+        subnet = self._string_value(entry.get("SubnetMask"))
+        if address and subnet:
+            try:
+                network = ipaddress.IPv4Network(f"{address}/{subnet}", strict=False)
+                inferred = network.network_address + 1
+            except ValueError:
+                return None
+            if inferred not in {network.network_address, network.broadcast_address}:
+                return str(inferred)
+        return None
+
+    def _gateway_source(self, entry: dict[str, Any], ethernet: dict[str, Any]) -> str | None:
+        if self._valid_gateway(entry.get("Gateway")):
+            return "redfish-ipv4"
+        for route in self._oem_static_routes(ethernet):
+            if self._valid_gateway(route.get("Gateway")):
+                return "redfish-oem-static-route"
+        if self._gateway_value(entry, ethernet):
+            return "inferred-from-subnet"
+        return None
+
+    def _valid_gateway(self, value: object) -> str | None:
+        text = self._string_value(value)
+        if not text or text in {"0.0.0.0", "::"}:
+            return None
+        try:
+            address = ipaddress.ip_address(text)
+        except ValueError:
+            return None
+        if address.version != 4:
+            return None
+        if address.is_loopback or address.is_link_local or address.is_multicast or address.is_unspecified:
+            return None
+        return str(address)
+
+    def _oem_static_routes(self, ethernet: dict[str, Any]) -> list[dict[str, Any]]:
+        oem = ethernet.get("Oem") if isinstance(ethernet.get("Oem"), dict) else {}
+        hpe = oem.get("Hpe") if isinstance(oem.get("Hpe"), dict) else {}
+        ipv4 = hpe.get("IPv4") if isinstance(hpe.get("IPv4"), dict) else {}
+        routes = ipv4.get("StaticRoutes")
+        return [route for route in routes if isinstance(route, dict)] if isinstance(routes, list) else []
 
     def _ntp_servers(self, manager_path: str) -> str | None:
         network_protocol = self._safe_get(f"{manager_path.rstrip('/')}/NetworkProtocol/")

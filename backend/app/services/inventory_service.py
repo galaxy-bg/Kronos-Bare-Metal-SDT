@@ -97,6 +97,7 @@ class InventoryService:
             "ip": value.get("ip"),
             "subnet": value.get("subnet"),
             "gateway": value.get("gateway"),
+            "gateway_source": value.get("gateway_source"),
             "dns": value.get("dns"),
             "ntp": value.get("ntp"),
             "vlan": value.get("vlan"),
