@@ -744,15 +744,21 @@ class HpeIloAdapter(BaseVendorAdapter):
         controllers: list[dict[str, Any]] = []
         drives: list[dict[str, Any]] = []
         volumes: list[dict[str, Any]] = []
+        volume_collections: set[str] = set()
+        hpe_oem_actions: list[dict[str, Any]] = []
 
         for storage_member in storage_members:
             storage_path = str(storage_member.get("path") or "")
             resource = storage_member.get("resource") if isinstance(storage_member.get("resource"), dict) else {}
             volumes_link = resource.get("Volumes") if isinstance(resource, dict) else None
             volume_collection = str(volumes_link.get("@odata.id")) if isinstance(volumes_link, dict) and volumes_link.get("@odata.id") else None
+            if volume_collection:
+                volume_collections.add(volume_collection)
+            hpe_oem_actions.extend(self._storage_oem_action_candidates(storage_path, resource))
             for controller in storage_member.get("controllers", []):
                 if isinstance(controller, dict):
                     controllers.append({"source": storage_path, **controller})
+                    hpe_oem_actions.extend(self._storage_oem_action_candidates(storage_path, controller, "controller"))
             for drive in storage_member.get("drives", []):
                 if isinstance(drive, dict):
                     drives.append({"source": storage_path, "writable_volume_collection": volume_collection, **drive})
@@ -805,15 +811,35 @@ class HpeIloAdapter(BaseVendorAdapter):
                 }
             )
         writable_drive_count = len([drive for drive in drives if drive.get("writable_volume_collection")])
-        apply_supported = writable_drive_count > 0
+        has_standard_redfish = writable_drive_count > 0
+        has_hpe_oem = bool(hpe_oem_actions)
+        apply_supported = has_standard_redfish
+        capabilities = {
+            "executor": "redfish_standard" if has_standard_redfish else "agent_required",
+            "redfish_standard": {
+                "available": has_standard_redfish,
+                "volume_collections": sorted(volume_collections),
+                "writable_drive_count": writable_drive_count,
+            },
+            "hpe_oem": {
+                "available": has_hpe_oem,
+                "implemented": False,
+                "actions": hpe_oem_actions,
+            },
+            "agent": {
+                "required": not has_standard_redfish,
+                "reason": None if has_standard_redfish else "No standard Redfish Volumes collection or implemented HPE OEM storage action was exposed.",
+            },
+        }
 
         return {
             "apply_supported": apply_supported,
             "apply_note": (
                 "Guarded RAID apply is enabled with explicit destructive confirmation."
                 if apply_supported
-                else "RAID apply is not available because Redfish did not expose a writable Volumes collection for the visible drives."
+                else "RAID apply requires the agent path because iLO did not expose a writable Redfish Volumes collection."
             ),
+            "capabilities": capabilities,
             "controller_count": len(controllers),
             "drive_count": drive_count,
             "writable_drive_count": writable_drive_count,
@@ -823,6 +849,47 @@ class HpeIloAdapter(BaseVendorAdapter):
             "volumes": volumes,
             "recommendations": recommendations,
         }
+
+    def _storage_oem_action_candidates(
+        self,
+        storage_path: str,
+        resource: dict[str, Any],
+        scope: str = "storage",
+    ) -> list[dict[str, Any]]:
+        candidates: list[dict[str, Any]] = []
+
+        def add_action(name: str, action: object, origin: str) -> None:
+            if not isinstance(action, dict):
+                return
+            target = action.get("target")
+            if not target:
+                return
+            normalized_name = str(name).lower()
+            normalized_target = str(target).lower()
+            interesting = any(term in normalized_name or term in normalized_target for term in ("hpe", "volume", "raid", "logical", "jbod", "drive"))
+            if not interesting:
+                return
+            candidates.append(
+                {
+                    "scope": scope,
+                    "source": storage_path,
+                    "origin": origin,
+                    "action": str(name),
+                    "target": str(target),
+                }
+            )
+
+        actions = resource.get("Actions") if isinstance(resource.get("Actions"), dict) else {}
+        for name, action in actions.items():
+            add_action(str(name), action, "Actions")
+
+        oem = resource.get("Oem") if isinstance(resource.get("Oem"), dict) else {}
+        hpe = oem.get("Hpe") if isinstance(oem.get("Hpe"), dict) else {}
+        hpe_actions = hpe.get("Actions") if isinstance(hpe.get("Actions"), dict) else {}
+        for name, action in hpe_actions.items():
+            add_action(str(name), action, "Oem.Hpe.Actions")
+
+        return candidates
 
     def _volume_name(self, value: str) -> str:
         normalized = value.strip() or "kdx-volume"

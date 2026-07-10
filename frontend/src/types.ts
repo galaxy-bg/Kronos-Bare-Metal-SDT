@@ -222,6 +222,7 @@ export type RaidPlanResult = {
   warnings: Array<{ name: string; message: string }>;
   eligible: boolean;
   apply_supported: boolean;
+  storage_executor: string;
   destructive: boolean;
   message: string;
   raid: Record<string, unknown>;

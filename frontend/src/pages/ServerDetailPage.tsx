@@ -321,6 +321,22 @@ function StorageRaidSummary({
   const drives = asArray(raid.drives);
   const volumes = asArray(raid.volumes);
   const recommendations = asArray(raid.recommendations);
+  const capabilities = asRecord(raid.capabilities);
+  const redfishStandard = asRecord(capabilities.redfish_standard);
+  const hpeOem = asRecord(capabilities.hpe_oem);
+  const executor = textField(
+    capabilities,
+    ['executor'],
+    raid.apply_supported ? 'redfish_standard' : 'agent_required',
+  );
+  const executorLabel =
+    executor === 'redfish_standard'
+      ? 'Redfish standard'
+      : executor === 'hpe_oem'
+        ? 'HPE OEM'
+        : executor === 'agent_required'
+          ? 'Agent required'
+          : executor;
   const [storageConfirmation, setStorageConfirmation] = useState('');
   const [storageBusy, setStorageBusy] = useState<string | null>(null);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
@@ -430,7 +446,24 @@ function StorageRaidSummary({
         <Chip size="small" label={`${textField(raid, ['drive_count'], '0')} drives`} />
         <Chip size="small" label={`${textField(raid, ['volume_count'], '0')} volumes`} />
         <Chip size="small" label={raid.apply_supported ? 'RAID apply enabled' : 'RAID preview only'} />
+        <Chip
+          size="small"
+          label={executorLabel}
+          color={executor === 'agent_required' ? 'warning' : 'success'}
+        />
+        <Chip
+          size="small"
+          label={`${textField(redfishStandard, ['writable_drive_count'], '0')} Redfish writable drives`}
+        />
+        {Boolean(hpeOem.available) && (
+          <Chip size="small" label="HPE OEM action discovered" color="info" />
+        )}
       </Stack>
+      {textField(raid, ['apply_note'], '') && (
+        <Alert severity={raid.apply_supported ? 'info' : 'warning'}>
+          {textField(raid, ['apply_note'], '')}
+        </Alert>
+      )}
       <Stack
         direction={{ xs: 'column', md: 'row' }}
         spacing={1.25}
@@ -746,6 +779,17 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
               <Chip size="small" label={plan.bootable ? 'Bootable' : 'Not bootable'} />
               <Chip size="small" label={plan.disk_mode === 'NON_RAID' ? 'Expose to OS' : 'Create volume'} />
               <Chip size="small" label={plan.apply_supported ? 'Apply enabled' : 'Apply disabled'} />
+              <Chip
+                size="small"
+                label={`Executor: ${
+                  plan.storage_executor === 'redfish_standard'
+                    ? 'Redfish standard'
+                    : plan.storage_executor === 'agent_required'
+                      ? 'Agent required'
+                      : plan.storage_executor
+                }`}
+                color={plan.storage_executor === 'agent_required' ? 'warning' : 'success'}
+              />
             </Stack>
             {plan.warnings.map((warning) => (
               <Alert key={warning.name} severity="info">

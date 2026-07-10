@@ -283,6 +283,8 @@ def raid_plan_requirement(raid_level: str) -> tuple[int, int | None]:
 
 def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[str, Any]) -> dict[str, Any]:
     raid_summary = nested_dict(raid_config.get("raid"))
+    capabilities = nested_dict(raid_summary.get("capabilities"))
+    storage_executor = str(capabilities.get("executor") or ("redfish_standard" if raid_summary.get("apply_supported") else "agent_required"))
     drive_items = raid_summary.get("drives")
     drives = [item for item in drive_items if isinstance(item, dict)] if isinstance(drive_items, list) else []
     drive_by_path = {path: drive for drive in drives if (path := raid_drive_path(drive))}
@@ -354,7 +356,7 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         add_check(
             "redfish-volume-collection",
             not missing_writable_collection,
-            "Selected drives must be linked to a writable Redfish Volumes collection before RAID can be applied.",
+            "Selected drives must be linked to a writable Redfish Volumes collection; otherwise the agent storage executor is required.",
         )
 
     add_check(
@@ -398,6 +400,7 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         "warnings": warnings,
         "eligible": eligible,
         "apply_supported": bool(raid_summary.get("apply_supported")),
+        "storage_executor": storage_executor,
         "destructive": True,
         "message": "Preview only. No storage changes were applied. Next step will require explicit destructive confirmation.",
         "raid": raid_summary,
@@ -1004,7 +1007,7 @@ def stage_server_raid_apply(server_id: int, payload: RaidApplyRequest, db: Sessi
             "selected_drives": plan["selected_drives"],
             "jbod_candidate_drives": plan["jbod_candidate_drives"],
             "destructive": True,
-            "executor": "not_enabled",
+            "executor": plan["storage_executor"],
             "auth": {
                 "username": adapter.context.credential.username,
                 "password": adapter.context.credential.password,
