@@ -55,6 +55,10 @@ class InventoryService:
         health_result = inventory_json.get("health") if isinstance(inventory_json, dict) else None
         if isinstance(health_result, dict):
             current["health"] = self._compact_health(health_result)
+        management_network = inventory_json.get("management_network") if isinstance(inventory_json, dict) else None
+        if isinstance(management_network, dict):
+            for key, value in self._compact_management_network(management_network).items():
+                current[key] = value
         server.management_config_json = {key: value for key, value in current.items() if value is not None}
 
     def _compact_license(self, value: dict) -> dict:
@@ -83,5 +87,21 @@ class InventoryService:
             "detected_by": value.get("detected_by"),
             "endpoint": value.get("endpoint"),
             "updated_at": datetime.now(UTC).isoformat(),
+        }
+        return {key: item for key, item in result.items() if item is not None}
+
+    def _compact_management_network(self, value: dict) -> dict:
+        result = {
+            "vendor": value.get("vendor"),
+            "type": value.get("type"),
+            "ip": value.get("ip"),
+            "subnet": value.get("subnet"),
+            "gateway": value.get("gateway"),
+            "dns": value.get("dns"),
+            "ntp": value.get("ntp"),
+            "vlan": value.get("vlan"),
+            "redfish_endpoint": value.get("redfish_endpoint"),
+            "redfish_ethernet_interface": value.get("redfish_ethernet_interface"),
+            "management_network_updated_at": datetime.now(UTC).isoformat(),
         }
         return {key: item for key, item in result.items() if item is not None}

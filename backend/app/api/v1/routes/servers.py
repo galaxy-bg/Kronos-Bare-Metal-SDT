@@ -536,8 +536,15 @@ def update_server_after_ilo_user_action(
 ) -> None:
     current = compact_management_config(dict(server.management_config_json or {}))
 
+    management_network = result.get("bmc") if isinstance(result.get("bmc"), dict) else None
     health_result = result.get("health") if isinstance(result.get("health"), dict) else None
     license_result = result.get("license") if isinstance(result.get("license"), dict) else None
+
+    if isinstance(management_network, dict):
+        for key in ("vendor", "type", "ip", "subnet", "gateway", "dns", "ntp", "vlan", "redfish_endpoint", "redfish_ethernet_interface"):
+            if management_network.get(key) is not None:
+                current[key] = management_network.get(key)
+        current["management_network_updated_at"] = action.completed_at.isoformat() if action.completed_at else None
 
     current["credential"] = compact_management_config(
         {
@@ -1252,6 +1259,10 @@ def create_ilo_user_action(server_id: int, payload: IloUserActionRequest, db: Se
         )
         try:
             result = adapter.create_ilo_user(payload.username, payload.password)
+            try:
+                result["bmc"] = adapter.get_management_network()
+            except RedfishError as exc:
+                result["bmc_error"] = str(exc)
             try:
                 result["license"] = adapter.get_ilo_license()
             except RedfishError as exc:

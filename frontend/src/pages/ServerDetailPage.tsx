@@ -1043,6 +1043,16 @@ export function ServerDetailPage() {
     return <Alert severity="error">{error ?? 'Server not found.'}</Alert>;
   }
 
+  const managementNetwork = asRecord(latestInventory.management_network);
+  const managementValue = (key: 'ip' | 'subnet' | 'gateway' | 'dns' | 'ntp' | 'vlan') => {
+    const value = server.management_config_json?.[key] ?? managementNetwork[key];
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return '-';
+  };
+  const bmcIp = server.bmc_ip ?? (managementValue('ip') !== '-' ? managementValue('ip') : null);
+  const vlanValue = managementValue('vlan');
+
   return (
     <Stack spacing={3}>
       <Stack direction="row" spacing={2} alignItems="center">
@@ -1091,12 +1101,12 @@ export function ServerDetailPage() {
               ['Agent Version', server.management_config_json?.agent?.version ?? '-'],
               ['Agent Build', server.management_config_json?.agent?.build ?? '-'],
               ['Agent Reported', server.management_config_json?.agent?.reported_at ? formatDate(server.management_config_json.agent.reported_at) : '-'],
-              ['iLO / iDRAC / IPMI IP', <IpReachability ip={server.bmc_ip} reachable={server.bmc_reachable} href={iloManagementHref(server.bmc_ip)} />],
-              ['Subnet', server.management_config_json?.subnet ?? '-'],
-              ['Gateway', server.management_config_json?.gateway ?? '-'],
-              ['DNS', server.management_config_json?.dns ?? '-'],
-              ['NTP', server.management_config_json?.ntp ?? '-'],
-              ['VLAN', server.management_config_json?.vlan === '0' ? '0 (Access / Untagged)' : server.management_config_json?.vlan ?? '-'],
+              ['iLO / iDRAC / IPMI IP', <IpReachability ip={bmcIp} reachable={server.bmc_reachable} href={iloManagementHref(bmcIp)} />],
+              ['Subnet', managementValue('subnet')],
+              ['Gateway', managementValue('gateway')],
+              ['DNS', managementValue('dns')],
+              ['NTP', managementValue('ntp')],
+              ['VLAN', vlanValue === '0' ? '0 (Access / Untagged)' : vlanValue],
               ['iLO License', server.management_config_json?.license?.edition ?? '-'],
               ['Hardware Health', server.management_config_json?.health?.overall ?? '-'],
               ['Power State', server.management_config_json?.health?.power_state ?? '-'],

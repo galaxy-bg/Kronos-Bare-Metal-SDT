@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ssl
+import ipaddress
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -62,6 +63,11 @@ class HpeIloAdapter(BaseVendorAdapter):
             health_result = self.get_health_summary()
         except RedfishError:
             health_result = None
+        management_network: dict[str, Any] | None = None
+        try:
+            management_network = self.get_management_network()
+        except RedfishError:
+            management_network = None
         return {
             "vendor": self.vendor,
             "source": "hpe-redfish",
@@ -69,6 +75,7 @@ class HpeIloAdapter(BaseVendorAdapter):
             "system": system,
             "license": license_result,
             "health": health_result,
+            "management_network": management_network,
         }
 
     def get_bios_config(self) -> dict[str, Any]:
@@ -311,6 +318,37 @@ class HpeIloAdapter(BaseVendorAdapter):
             "message": f"iLO user {username} was created.",
         }
 
+    def get_management_network(self) -> dict[str, Any]:
+        manager_path = self._first_member_path("/redfish/v1/Managers/", "/redfish/v1/Managers/1/")
+        collection = self._get(f"{manager_path.rstrip('/')}/EthernetInterfaces/")
+        skipped: list[str] = []
+
+        for ethernet_path in self._member_paths(collection):
+            ethernet = self._safe_get(ethernet_path)
+            if not ethernet:
+                continue
+            for entry in self._ipv4_entries(ethernet):
+                address = self._string_value(entry.get("Address"))
+                if not self._is_management_ip_candidate(address):
+                    if address:
+                        skipped.append(address)
+                    continue
+                return {
+                    "vendor": "HPE",
+                    "type": "iLO",
+                    "ip": address,
+                    "subnet": entry.get("SubnetMask"),
+                    "gateway": entry.get("Gateway"),
+                    "dns": self._dns_servers(ethernet),
+                    "ntp": self._ntp_servers(manager_path),
+                    "vlan": self._vlan_value(ethernet),
+                    "redfish_endpoint": self.base_url,
+                    "redfish_ethernet_interface": ethernet_path,
+                    "detected_by": "redfish",
+                }
+
+        raise RedfishError(f"No routable iLO management IPv4 address found. Skipped: {', '.join(skipped) or 'none'}")
+
     def power_status(self) -> dict[str, Any]:
         inventory = self.get_system_inventory()
         system = inventory.get("system") if isinstance(inventory, dict) else {}
@@ -474,6 +512,64 @@ class HpeIloAdapter(BaseVendorAdapter):
             if isinstance(member, dict) and member.get("@odata.id"):
                 paths.append(str(member["@odata.id"]))
         return paths
+
+    def _string_value(self, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _is_management_ip_candidate(self, value: str | None) -> bool:
+        if not value:
+            return False
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            return False
+        if address.version != 4:
+            return False
+        if address.is_loopback or address.is_link_local or address.is_multicast or address.is_unspecified:
+            return False
+        if address in ipaddress.ip_network("16.1.15.0/30"):
+            return False
+        return True
+
+    def _vlan_value(self, ethernet: dict[str, Any]) -> str:
+        vlan = ethernet.get("VLAN") if isinstance(ethernet.get("VLAN"), dict) else {}
+        if not vlan.get("VLANEnable"):
+            return "0"
+        vlan_id = vlan.get("VLANId")
+        return str(vlan_id) if vlan_id is not None else "0"
+
+    def _ipv4_entries(self, ethernet: dict[str, Any]) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for key in ("IPv4Addresses", "IPv4StaticAddresses"):
+            value = ethernet.get(key)
+            if isinstance(value, list):
+                entries.extend(entry for entry in value if isinstance(entry, dict))
+        return entries
+
+    def _dns_servers(self, ethernet: dict[str, Any]) -> str | None:
+        candidates = ethernet.get("NameServers") or ethernet.get("StaticNameServers")
+        if isinstance(candidates, list):
+            values = [str(server) for server in candidates if self._string_value(server) and str(server) not in {"0.0.0.0", "::"}]
+            if values:
+                return ", ".join(values)
+        return None
+
+    def _ntp_servers(self, manager_path: str) -> str | None:
+        network_protocol = self._safe_get(f"{manager_path.rstrip('/')}/NetworkProtocol/")
+        if not network_protocol:
+            return None
+        ntp = network_protocol.get("NTP")
+        if not isinstance(ntp, dict):
+            return None
+        candidates = ntp.get("NTPServers") or ntp.get("StaticNTPServers")
+        if isinstance(candidates, list):
+            values = [str(server) for server in candidates if self._string_value(server)]
+            if values:
+                return ", ".join(values)
+        return None
 
     def _account_for_username(self, username: str) -> tuple[str | None, dict[str, Any] | None]:
         collection = self._get("/redfish/v1/AccountService/Accounts/")
