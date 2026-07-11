@@ -40,7 +40,7 @@ def normalize_bios_config(bios_payload: dict[str, Any]) -> dict[str, Any]:
 
     for name, value in attributes.items():
         registry = registry_attributes.get(name, {})
-        reason = skip_reason(name, registry)
+        reason = skip_reason(name, registry, registry_attributes_available=bool(registry_attributes))
         if reason:
             skipped.append({"attribute": name, "reason": reason})
             continue
@@ -145,7 +145,9 @@ def detect_workload_profile(attributes: dict[str, Any], registry_attributes: dic
     return None
 
 
-def skip_reason(name: str, registry: dict[str, Any]) -> str | None:
+def skip_reason(name: str, registry: dict[str, Any], registry_attributes_available: bool = False) -> str | None:
+    if registry_attributes_available and not registry:
+        return "unsupported"
     if registry.get("ReadOnly") is True:
         return "read-only"
     if name in UNSAFE_EXACT_NAMES:
