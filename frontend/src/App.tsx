@@ -27,17 +27,31 @@ export default function App() {
       >
         <Toolbar sx={{ minHeight: { xs: 72, sm: 84 }, px: { xs: 2, sm: 4 } }}>
           <Stack direction="row" spacing={2} alignItems="center" sx={{ width: '100%' }}>
-            <BrandMark />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h5" sx={{ lineHeight: 1, fontWeight: 900, color: 'text.primary' }}>
-                KDX SDT
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{ color: 'text.secondary', fontWeight: 900, letterSpacing: 1.8, textTransform: 'uppercase' }}
-              >
-                Server Deployment Toolkit
-              </Typography>
+            <Box
+              component={RouterLink}
+              to="/"
+              aria-label="Go to Inventory"
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                minWidth: 0,
+                color: 'inherit',
+                textDecoration: 'none',
+              }}
+            >
+              <BrandMark />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="h5" sx={{ lineHeight: 1, fontWeight: 900, color: 'text.primary' }}>
+                  KDX SDT
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{ color: 'text.secondary', fontWeight: 900, letterSpacing: 1.8, textTransform: 'uppercase' }}
+                >
+                  Server Deployment Toolkit
+                </Typography>
+              </Box>
             </Box>
             <Box sx={{ flex: 1 }} />
             <Stack direction="row" spacing={1} sx={{ display: { xs: 'none', sm: 'flex' } }}>
