@@ -466,7 +466,7 @@ class HpeIloAdapter(BaseVendorAdapter):
     def _safe_get(self, path: str) -> dict[str, Any] | None:
         try:
             return self._get(path)
-        except RedfishError:
+        except Exception:
             return None
 
     def _read_bios_attribute_registry(self, bios: dict[str, Any]) -> dict[str, Any]:
@@ -508,9 +508,13 @@ class HpeIloAdapter(BaseVendorAdapter):
             for location in locations:
                 if isinstance(location, dict) and location.get("Uri"):
                     return str(location["Uri"])
+                if isinstance(location, dict) and location.get("extref"):
+                    return str(location["extref"])
         location = registry.get("Location")
         if isinstance(location, dict) and location.get("Uri"):
             return str(location["Uri"])
+        if isinstance(location, dict) and location.get("extref"):
+            return str(location["extref"])
         return None
 
     def _bios_settings_uri(self, bios: dict[str, Any]) -> str | None:

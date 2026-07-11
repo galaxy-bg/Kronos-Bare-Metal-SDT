@@ -47,6 +47,8 @@ class InventoryService:
             return method()
         except RedfishError as exc:
             return {"available": False, "error": str(exc)}
+        except Exception as exc:
+            return {"available": False, "error": str(exc)}
 
     def _merge_management_state(self, server: Server, inventory_json: dict) -> None:
         current = dict(server.management_config_json or {})
