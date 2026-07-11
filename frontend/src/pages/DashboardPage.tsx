@@ -554,6 +554,7 @@ export function DashboardPage() {
   const [iloUserOpen, setIloUserOpen] = useState(false);
   const [iloLicenseOpen, setIloLicenseOpen] = useState(false);
   const [iloDiscoveryOpen, setIloDiscoveryOpen] = useState(false);
+  const [iloDiscoveryError, setIloDiscoveryError] = useState<string | null>(null);
   const [enrollmentOpen, setEnrollmentOpen] = useState(false);
   const [enrollmentUrl, setEnrollmentUrl] = useState('');
   const [enrollmentExpiresAt, setEnrollmentExpiresAt] = useState<string | null>(null);
@@ -806,6 +807,8 @@ export function DashboardPage() {
 
   function openIloDiscovery() {
     setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '', osType: 'esxi', osManagementIp: '', osUsername: 'root', osPassword: '' });
+    setIloDiscoveryError(null);
+    setError(null);
     setShowDiscoveryPassword(false);
     setShowDiscoveryOsPassword(false);
     setIloDiscoveryOpen(true);
@@ -850,6 +853,7 @@ export function DashboardPage() {
 
   function closeIloDiscovery() {
     setIloDiscoveryOpen(false);
+    setIloDiscoveryError(null);
     setIloDiscoveryForm({ bmcIp: '', username: 'Administrator', password: '', hostname: '', osType: 'esxi', osManagementIp: '', osUsername: 'root', osPassword: '' });
     setShowDiscoveryPassword(false);
     setShowDiscoveryOsPassword(false);
@@ -966,12 +970,13 @@ export function DashboardPage() {
     const username = iloDiscoveryForm.username.trim();
     const password = iloDiscoveryForm.password.trim();
     if (!bmcIp || !username || !password) {
-      setError('iLO IP, username and password are required.');
+      setIloDiscoveryError('iLO IP, username and password are required.');
       return;
     }
 
     setSaving(true);
     setError(null);
+    setIloDiscoveryError(null);
     try {
       await discoverIloServer({
         bmc_ip: bmcIp,
@@ -986,7 +991,7 @@ export function DashboardPage() {
       await load();
       closeIloDiscovery();
     } catch {
-      setError('iLO discovery failed. Check IP, credentials and Redfish reachability.');
+      setIloDiscoveryError('iLO discovery failed. Check IP, credentials and Redfish reachability.');
     } finally {
       setSaving(false);
     }
@@ -1771,12 +1776,29 @@ export function DashboardPage() {
       </Menu>
 
       <Dialog open={iloDiscoveryOpen} onClose={closeIloDiscovery} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>Discover iLO</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900, pr: 6 }}>
+          Discover iLO
+          <Tooltip title="Close" arrow>
+            <IconButton
+              aria-label="Close Discover iLO"
+              onClick={closeIloDiscovery}
+              disabled={saving}
+              sx={{ position: 'absolute', right: 16, top: 14 }}
+            >
+              <ClearIcon />
+            </IconButton>
+          </Tooltip>
+        </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info">
               Adds or updates a server directly from iLO Redfish. No OS agent is required.
             </Alert>
+            {iloDiscoveryError && (
+              <Alert severity="error" onClose={() => setIloDiscoveryError(null)}>
+                {iloDiscoveryError}
+              </Alert>
+            )}
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <TextField
@@ -1884,7 +1906,9 @@ export function DashboardPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeIloDiscovery}>Cancel</Button>
+          <Button onClick={closeIloDiscovery} disabled={saving}>
+            {iloDiscoveryError ? 'Close' : 'Cancel'}
+          </Button>
           <Button
             variant="contained"
             onClick={saveIloDiscovery}
