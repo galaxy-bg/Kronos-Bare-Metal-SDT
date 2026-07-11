@@ -506,15 +506,28 @@ class HpeIloAdapter(BaseVendorAdapter):
         locations = registry.get("Location")
         if isinstance(locations, list):
             for location in locations:
-                if isinstance(location, dict) and location.get("Uri"):
-                    return str(location["Uri"])
-                if isinstance(location, dict) and location.get("extref"):
-                    return str(location["extref"])
+                location_uri = self._registry_location_value(location)
+                if location_uri:
+                    return location_uri
         location = registry.get("Location")
-        if isinstance(location, dict) and location.get("Uri"):
-            return str(location["Uri"])
-        if isinstance(location, dict) and location.get("extref"):
-            return str(location["extref"])
+        location_uri = self._registry_location_value(location)
+        if location_uri:
+            return location_uri
+        return None
+
+    def _registry_location_value(self, location: object) -> str | None:
+        if not isinstance(location, dict):
+            return None
+        uri = location.get("Uri")
+        if isinstance(uri, str) and uri:
+            return uri
+        if isinstance(uri, dict):
+            for key in ("extref", "href", "@odata.id"):
+                if uri.get(key):
+                    return str(uri[key])
+        for key in ("extref", "href", "@odata.id"):
+            if location.get(key):
+                return str(location[key])
         return None
 
     def _bios_settings_uri(self, bios: dict[str, Any]) -> str | None:
