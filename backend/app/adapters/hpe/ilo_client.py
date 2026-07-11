@@ -111,21 +111,25 @@ class HpeIloAdapter(BaseVendorAdapter):
     def get_storage_inventory(self) -> dict[str, Any]:
         system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
         storage_path = system_path.rstrip("/") + "/Storage/"
-        storage_collection = self._get(storage_path)
+        storage_collection = self._safe_get(storage_path) or {
+            "available": False,
+            "error": f"{storage_path} is not readable on this iLO Redfish implementation.",
+        }
         storage_members: list[dict[str, Any]] = []
-        for member_path in self._member_paths(storage_collection):
-            storage_resource = self._safe_get(member_path)
-            if not storage_resource:
-                continue
-            storage_members.append(
-                {
-                    "path": member_path,
-                    "resource": storage_resource,
-                    "controllers": self._extract_controllers(storage_resource),
-                    "drives": self._read_linked_collection(storage_resource.get("Drives")),
-                    "volumes": self._read_volumes(storage_resource.get("Volumes")),
-                }
-            )
+        if storage_collection.get("available") is not False:
+            for member_path in self._member_paths(storage_collection):
+                storage_resource = self._safe_get(member_path)
+                if not storage_resource:
+                    continue
+                storage_members.append(
+                    {
+                        "path": member_path,
+                        "resource": storage_resource,
+                        "controllers": self._extract_controllers(storage_resource),
+                        "drives": self._read_linked_collection(storage_resource.get("Drives")),
+                        "volumes": self._read_volumes(storage_resource.get("Volumes")),
+                    }
+                )
 
         smart_storage = self._read_hpe_smart_storage(system_path)
         raid = self._raid_summary(storage_members, smart_storage)
@@ -233,14 +237,27 @@ class HpeIloAdapter(BaseVendorAdapter):
 
     def get_firmware_inventory(self) -> dict[str, Any]:
         # TODO: firmware update.
-        collection_path = "/redfish/v1/UpdateService/FirmwareInventory/"
-        collection = self._get(collection_path)
+        system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
+        attempted_paths = [
+            "/redfish/v1/UpdateService/FirmwareInventory/",
+            system_path.rstrip("/") + "/FirmwareInventory/",
+            "/redfish/v1/Systems/1/FirmwareInventory/",
+        ]
+        collection_path = ""
+        collection: dict[str, Any] | None = None
+        for candidate in dict.fromkeys(attempted_paths):
+            collection = self._safe_get(candidate)
+            if collection:
+                collection_path = candidate
+                break
+        if not collection:
+            raise RedfishError(f"No readable firmware inventory was found. Attempted: {', '.join(attempted_paths)}")
         return {
             "vendor": self.vendor,
             "source": "hpe-redfish-firmware",
             "collection_path": collection_path,
             "collection": collection,
-            "items": self._read_collection_members(collection),
+            "items": self._firmware_items(collection),
         }
 
     def get_device_inventory(self) -> dict[str, Any]:
@@ -259,6 +276,9 @@ class HpeIloAdapter(BaseVendorAdapter):
                     devices.append({"category": child_name, **item})
 
         for child_name in ("PCIeDevices", "NetworkInterfaces", "EthernetInterfaces"):
+            for item in self._read_named_child_collection(system_path, child_name):
+                devices.append({"category": child_name, **item})
+        for child_name in ("PCIDevices", "NetworkAdapters", "FirmwareInventory"):
             for item in self._read_named_child_collection(system_path, child_name):
                 devices.append({"category": child_name, **item})
 
@@ -547,7 +567,25 @@ class HpeIloAdapter(BaseVendorAdapter):
         for member in collection.get("Members", []):
             if isinstance(member, dict) and member.get("@odata.id"):
                 paths.append(str(member["@odata.id"]))
-        return paths
+            elif isinstance(member, dict) and member.get("href"):
+                paths.append(str(member["href"]))
+        links = collection.get("links")
+        if isinstance(links, dict):
+            members = links.get("Member")
+            if isinstance(members, list):
+                for member in members:
+                    path = self._link_href(member)
+                    if path:
+                        paths.append(path)
+        return list(dict.fromkeys(paths))
+
+    def _link_href(self, value: object) -> str | None:
+        if not isinstance(value, dict):
+            return None
+        for key in ("@odata.id", "href"):
+            if value.get(key):
+                return str(value[key])
+        return None
 
     def _string_value(self, value: object) -> str | None:
         if value is None:
@@ -789,10 +827,46 @@ class HpeIloAdapter(BaseVendorAdapter):
 
     def _read_collection_members(self, collection: dict[str, Any]) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
+        for index, item in enumerate(collection.get("Items", [])):
+            if not isinstance(item, dict):
+                continue
+            links = item.get("links") if isinstance(item.get("links"), dict) else {}
+            item_path = self._odata_path(item) or self._link_href(links.get("self"))
+            results.append({"path": item_path or f"inline-{index}", "resource": item})
         for member_path in self._member_paths(collection):
+            if any(result.get("path") == member_path for result in results):
+                continue
             resource = self._safe_get(member_path)
             results.append({"path": member_path, "resource": resource or {"error": "read failed"}})
         return results
+
+    def _firmware_items(self, collection: dict[str, Any]) -> list[dict[str, Any]]:
+        members = self._read_collection_members(collection)
+        if members:
+            return members
+        current = collection.get("Current")
+        if not isinstance(current, dict):
+            return []
+        items: list[dict[str, Any]] = []
+        for family, values in current.items():
+            if not isinstance(values, list):
+                continue
+            for index, value in enumerate(values):
+                if not isinstance(value, dict):
+                    continue
+                version = value.get("VersionString")
+                items.append(
+                    {
+                        "path": str(value.get("Key") or f"{family}-{index}"),
+                        "resource": {
+                            "Id": str(family),
+                            "FirmwareVersion": version,
+                            "Version": version,
+                            **value,
+                        },
+                    }
+                )
+        return items
 
     def _raid_summary(self, storage_members: list[dict[str, Any]], smart_storage: dict[str, Any]) -> dict[str, Any]:
         controllers: list[dict[str, Any]] = []
