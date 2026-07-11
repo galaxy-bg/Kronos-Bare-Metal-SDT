@@ -208,6 +208,7 @@ class BIOSProfileService:
             "dry_run": dry_run,
             "changed_count": diff["changed_count"],
             "unsupported_count": diff["unsupported_count"],
+            "skipped_unsupported_attributes": sorted((diff.get("unsupported") or {}).keys()),
             "pending_reboot": bool(diff["changed"]),
             "message": "BIOS dry-run completed. No BIOS changes were applied." if dry_run else "BIOS deploy started.",
         }
@@ -218,16 +219,15 @@ class BIOSProfileService:
                 job.error_message = "Real BIOS deploy is disabled. Enable bios.enable_real_apply in global settings first."
                 action_status = "failed"
                 action_error = job.error_message
-            elif diff.get("unsupported"):
-                job.status = "failed"
-                job.error_message = "BIOS deploy blocked because the profile contains unsupported target attributes."
-                action_status = "failed"
-                action_error = job.error_message
             elif not diff.get("apply_attributes"):
                 job.status = "succeeded"
                 job.applied_at = datetime.now(UTC)
                 action_status = "succeeded"
-                action_result["message"] = "No BIOS changes were required."
+                action_result["message"] = (
+                    "No supported BIOS changes were required; unsupported profile attributes were skipped."
+                    if diff.get("unsupported")
+                    else "No BIOS changes were required."
+                )
             else:
                 try:
                     result = self.hpe_client.apply_attributes(server, diff["apply_attributes"], dry_run=False)
@@ -241,6 +241,8 @@ class BIOSProfileService:
                         if job.pending_reboot
                         else "BIOS deploy submitted."
                     )
+                    if diff.get("unsupported"):
+                        action_result["message"] += " Unsupported profile attributes were skipped."
                 except RedfishError as exc:
                     job.status = "failed"
                     job.error_message = str(exc)

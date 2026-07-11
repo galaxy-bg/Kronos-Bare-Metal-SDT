@@ -198,8 +198,6 @@ export function BiosProfilesPage() {
     ? 'Real BIOS deploy is disabled in Settings.'
     : !compareResult
       ? 'Run compare before deploy.'
-    : compareResult?.diff.unsupported_count
-      ? 'Deploy is blocked because unsupported attributes exist.'
     : !compareResult?.diff.changed_count
         ? 'No changed BIOS attributes to deploy.'
         : null;
@@ -796,9 +794,11 @@ export function BiosProfilesPage() {
             control={<Checkbox checked={deployPostReboot} onChange={(event) => setDeployPostReboot(event.target.checked)} />}
             label="Create post-deploy reboot task when BIOS changes require reboot"
           />
-          <Alert severity={deployBlockedReason ? 'warning' : 'info'}>
+          <Alert severity={deployBlockedReason ? 'warning' : compareResult?.diff.unsupported_count ? 'warning' : 'info'}>
             {deployBlockedReason ||
-              'Deploy writes only changed BIOS attributes through Redfish. Reboot is not automatic unless the post-task reboot checkbox is selected; it still appears as a planned task first.'}
+              (compareResult?.diff.unsupported_count
+                ? 'Deploy writes only supported changed BIOS attributes. Unsupported profile attributes are skipped and reported in the task result.'
+                : 'Deploy writes only changed BIOS attributes through Redfish. Reboot is not automatic unless the post-task reboot checkbox is selected; it still appears as a planned task first.')}
           </Alert>
           {selectedProfile && selectedServer && (
             <Typography variant="body2" color="text.secondary">
