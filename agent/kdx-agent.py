@@ -885,8 +885,16 @@ def redfish_create_ilo_user(root: str, auth: RedfishAuth, username: str, passwor
         "RoleId": "Administrator",
         "Enabled": True,
     }
-    result = redfish_request(root, "/redfish/v1/AccountService/Accounts/", method="POST", payload=request, auth=auth)
-    return {"backend": "redfish", "endpoint": root, "account": result, "username": username}
+    legacy_payload = False
+    try:
+        result = redfish_request(root, "/redfish/v1/AccountService/Accounts/", method="POST", payload=request, auth=auth)
+    except RuntimeError as exc:
+        if "PropertyUnknown" not in str(exc) or "Enabled" not in str(exc):
+            raise
+        fallback = {key: value for key, value in request.items() if key != "Enabled"}
+        result = redfish_request(root, "/redfish/v1/AccountService/Accounts/", method="POST", payload=fallback, auth=auth)
+        legacy_payload = True
+    return {"backend": "redfish", "endpoint": root, "account": result, "username": username, "legacy_payload": legacy_payload}
 
 
 def redfish_create_ilo_user_and_refresh_bmc(

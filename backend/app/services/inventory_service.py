@@ -24,14 +24,15 @@ class InventoryService:
         else:
             try:
                 inventory_json = adapter.get_system_inventory()
-                storage_inventory = adapter.get_storage_inventory()
+            except RedfishError as exc:
+                inventory_json = self.adapter_service.mocked_inventory_refresh(server, f"Redfish refresh failed: {exc}")
+            else:
+                storage_inventory = self._optional_adapter_read(adapter, "get_storage_inventory")
                 inventory_json["storage_redfish"] = storage_inventory
                 inventory_json["raid"] = storage_inventory.get("raid") if isinstance(storage_inventory, dict) else None
                 inventory_json["bios_redfish"] = self._optional_adapter_read(adapter, "get_bios_config")
                 inventory_json["firmware_inventory"] = self._optional_adapter_read(adapter, "get_firmware_inventory")
                 inventory_json["device_inventory"] = self._optional_adapter_read(adapter, "get_device_inventory")
-            except RedfishError as exc:
-                inventory_json = self.adapter_service.mocked_inventory_refresh(server, f"Redfish refresh failed: {exc}")
         self._merge_management_state(server, inventory_json)
         inventory = InventoryRepository(self.db).create(server.id, inventory_json)
         self.db.commit()

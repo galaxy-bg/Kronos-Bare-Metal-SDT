@@ -306,7 +306,15 @@ class HpeIloAdapter(BaseVendorAdapter):
             "RoleId": "Administrator",
             "Enabled": True,
         }
-        result = self._post("/redfish/v1/AccountService/Accounts/", payload)
+        used_legacy_payload = False
+        try:
+            result = self._post("/redfish/v1/AccountService/Accounts/", payload)
+        except RedfishError as exc:
+            if "PropertyUnknown" not in str(exc) or "Enabled" not in str(exc):
+                raise
+            legacy_payload = {key: value for key, value in payload.items() if key != "Enabled"}
+            result = self._post("/redfish/v1/AccountService/Accounts/", legacy_payload)
+            used_legacy_payload = True
         return {
             "vendor": self.vendor,
             "backend": "redfish",
@@ -314,6 +322,7 @@ class HpeIloAdapter(BaseVendorAdapter):
             "existing": False,
             "username": username,
             "payload": {"UserName": username, "RoleId": "Administrator", "Enabled": True},
+            "legacy_payload": used_legacy_payload,
             "account": result,
             "message": f"iLO user {username} was created.",
         }
