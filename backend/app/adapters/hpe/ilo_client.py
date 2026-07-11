@@ -306,15 +306,24 @@ class HpeIloAdapter(BaseVendorAdapter):
             "RoleId": "Administrator",
             "Enabled": True,
         }
-        used_legacy_payload = False
-        try:
-            result = self._post("/redfish/v1/AccountService/Accounts/", payload)
-        except RedfishError as exc:
-            if "PropertyUnknown" not in str(exc) or "Enabled" not in str(exc):
-                raise
-            legacy_payload = {key: value for key, value in payload.items() if key != "Enabled"}
-            result = self._post("/redfish/v1/AccountService/Accounts/", legacy_payload)
-            used_legacy_payload = True
+        payload_style = "manager-account-v1"
+        candidates = [
+            ("manager-account-v1", payload),
+            ("manager-account-v1-no-enabled", {key: value for key, value in payload.items() if key != "Enabled"}),
+            ("hpe-ilo4-oem", self._ilo4_account_payload(username, password)),
+        ]
+        last_error: RedfishError | None = None
+        for style, candidate in candidates:
+            try:
+                result = self._post("/redfish/v1/AccountService/Accounts/", candidate)
+                payload_style = style
+                break
+            except RedfishError as exc:
+                last_error = exc
+                if "PropertyUnknown" not in str(exc) or not any(field in str(exc) for field in ("Enabled", "RoleId")):
+                    raise
+        else:
+            raise last_error or RedfishError("iLO user create failed.")
         return {
             "vendor": self.vendor,
             "backend": "redfish",
@@ -322,7 +331,7 @@ class HpeIloAdapter(BaseVendorAdapter):
             "existing": False,
             "username": username,
             "payload": {"UserName": username, "RoleId": "Administrator", "Enabled": True},
-            "legacy_payload": used_legacy_payload,
+            "payload_style": payload_style,
             "account": result,
             "message": f"iLO user {username} was created.",
         }
@@ -649,6 +658,25 @@ class HpeIloAdapter(BaseVendorAdapter):
             if str(account.get("UserName") or "").lower() == username.lower():
                 return account_path, account
         return None, None
+
+    def _ilo4_account_payload(self, username: str, password: str) -> dict[str, Any]:
+        return {
+            "UserName": username,
+            "Password": password,
+            "Oem": {
+                "Hp": {
+                    "LoginName": username,
+                    "Privileges": {
+                        "LoginPriv": True,
+                        "RemoteConsolePriv": True,
+                        "UserConfigPriv": True,
+                        "VirtualMediaPriv": True,
+                        "VirtualPowerAndResetPriv": True,
+                        "iLOConfigPriv": True,
+                    },
+                }
+            },
+        }
 
     def _odata_path(self, value: object) -> str | None:
         if isinstance(value, dict) and value.get("@odata.id"):

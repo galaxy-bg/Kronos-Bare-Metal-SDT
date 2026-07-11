@@ -885,16 +885,47 @@ def redfish_create_ilo_user(root: str, auth: RedfishAuth, username: str, passwor
         "RoleId": "Administrator",
         "Enabled": True,
     }
-    legacy_payload = False
-    try:
-        result = redfish_request(root, "/redfish/v1/AccountService/Accounts/", method="POST", payload=request, auth=auth)
-    except RuntimeError as exc:
-        if "PropertyUnknown" not in str(exc) or "Enabled" not in str(exc):
-            raise
-        fallback = {key: value for key, value in request.items() if key != "Enabled"}
-        result = redfish_request(root, "/redfish/v1/AccountService/Accounts/", method="POST", payload=fallback, auth=auth)
-        legacy_payload = True
-    return {"backend": "redfish", "endpoint": root, "account": result, "username": username, "legacy_payload": legacy_payload}
+    candidates = [
+        ("manager-account-v1", request),
+        ("manager-account-v1-no-enabled", {key: value for key, value in request.items() if key != "Enabled"}),
+        ("hpe-ilo4-oem", redfish_ilo4_account_payload(username, password)),
+    ]
+    last_error: RuntimeError | None = None
+    for payload_style, candidate in candidates:
+        try:
+            result = redfish_request(root, "/redfish/v1/AccountService/Accounts/", method="POST", payload=candidate, auth=auth)
+            return {
+                "backend": "redfish",
+                "endpoint": root,
+                "account": result,
+                "username": username,
+                "payload_style": payload_style,
+            }
+        except RuntimeError as exc:
+            last_error = exc
+            if "PropertyUnknown" not in str(exc) or not any(field in str(exc) for field in ("Enabled", "RoleId")):
+                raise
+    raise last_error or RuntimeError("iLO user create failed.")
+
+
+def redfish_ilo4_account_payload(username: str, password: str) -> dict[str, Any]:
+    return {
+        "UserName": username,
+        "Password": password,
+        "Oem": {
+            "Hp": {
+                "LoginName": username,
+                "Privileges": {
+                    "LoginPriv": True,
+                    "RemoteConsolePriv": True,
+                    "UserConfigPriv": True,
+                    "VirtualMediaPriv": True,
+                    "VirtualPowerAndResetPriv": True,
+                    "iLOConfigPriv": True,
+                },
+            }
+        },
+    }
 
 
 def redfish_create_ilo_user_and_refresh_bmc(
