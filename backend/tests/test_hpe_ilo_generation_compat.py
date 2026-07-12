@@ -90,6 +90,25 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
         self.assertEqual(result["ethernet_interface"], "/redfish/v1/Managers/ilo-1/EthernetInterfaces/1")
         self.assertEqual(writes[0][1]["IPv4StaticAddresses"][0]["Address"], "192.0.2.20")
 
+    def test_dmtf_linked_controllers_and_empty_bays_are_normalized(self) -> None:
+        controller_collection = "/redfish/v1/Systems/1/Storage/MR/Controllers"
+        controller_path = controller_collection + "/0"
+        adapter = FixtureIloAdapter(
+            {
+                controller_collection: {"Members": [{"@odata.id": controller_path}]},
+                controller_path: {"Id": "0", "Name": "HPE MR416i-o Gen11", "SupportedRAIDTypes": ["None", "RAID1"]},
+            }
+        )
+        storage_resource = {"Controllers": {"@odata.id": controller_collection}}
+        controllers = adapter._extract_controllers(storage_resource)
+        self.assertEqual(controllers[0]["path"], controller_path)
+        self.assertEqual(controllers[0]["resource"]["Name"], "HPE MR416i-o Gen11")
+
+        present = {"path": "/Drives/2", "resource": {"Name": "NVMe SSD", "SerialNumber": "disk-2", "Status": {"State": "StandbyOffline"}}}
+        empty = {"path": "/Drives/64517", "resource": {"Name": "Empty Bay", "Status": {"State": "Absent"}}}
+        self.assertTrue(adapter._is_present_storage_drive(present))
+        self.assertFalse(adapter._is_present_storage_drive(empty))
+
 
 if __name__ == "__main__":
     unittest.main()

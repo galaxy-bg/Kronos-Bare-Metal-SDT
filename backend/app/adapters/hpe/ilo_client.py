@@ -861,10 +861,27 @@ class HpeIloAdapter(BaseVendorAdapter):
         for key in ("StorageControllers", "Controllers"):
             value = storage_resource.get(key)
             if isinstance(value, list):
-                for item in value:
+                for index, item in enumerate(value):
                     if isinstance(item, dict):
-                        controllers.append(item)
+                        path = self._odata_path(item) or f"inline-{key}-{index}"
+                        controllers.append({"path": path, "resource": item})
+                continue
+            collection_path = self._odata_path(value)
+            if not collection_path:
+                continue
+            collection = self._safe_get(collection_path)
+            if collection:
+                controllers.extend(self._read_collection_members(collection))
         return controllers
+
+    def _is_present_storage_drive(self, drive: dict[str, Any]) -> bool:
+        resource = drive.get("resource") if isinstance(drive.get("resource"), dict) else {}
+        status = resource.get("Status") if isinstance(resource.get("Status"), dict) else {}
+        state = str(status.get("State") or "").strip().lower()
+        name = str(resource.get("Name") or "").strip().lower()
+        if state in {"absent", "unavailableoffline"} or name == "empty bay":
+            return False
+        return bool(resource.get("SerialNumber") or resource.get("CapacityBytes") or name)
 
     def _read_hpe_smart_storage(self, system_path: str) -> dict[str, Any]:
         candidates = [
@@ -972,7 +989,7 @@ class HpeIloAdapter(BaseVendorAdapter):
                     controllers.append({"source": storage_path, **controller})
                     hpe_oem_actions.extend(self._storage_oem_action_candidates(storage_path, controller, "controller"))
             for drive in storage_member.get("drives", []):
-                if isinstance(drive, dict):
+                if isinstance(drive, dict) and self._is_present_storage_drive(drive):
                     drives.append({"source": storage_path, "writable_volume_collection": volume_collection, **drive})
             for volume in storage_member.get("volumes", []):
                 if isinstance(volume, dict):
