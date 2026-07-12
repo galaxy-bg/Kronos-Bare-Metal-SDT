@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import ssl
 import ipaddress
+import re
+import ssl
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -47,12 +48,10 @@ class HpeIloAdapter(BaseVendorAdapter):
         return {"vendor": self.vendor, "root": root, "managers": managers}
 
     def get_system_inventory(self) -> dict[str, Any]:
-        systems = self._get("/redfish/v1/Systems/")
-        members = systems.get("Members") or []
-        system_path = "/redfish/v1/Systems/1/"
-        if members and isinstance(members[0], dict) and members[0].get("@odata.id"):
-            system_path = str(members[0]["@odata.id"])
+        system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
         system = self._get(system_path)
+        manager_path = self._first_member_path("/redfish/v1/Managers/", "/redfish/v1/Managers/1/")
+        manager = self._safe_get(manager_path) or {}
         license_result: dict[str, Any] | None = None
         health_result: dict[str, Any] | None = None
         try:
@@ -73,6 +72,7 @@ class HpeIloAdapter(BaseVendorAdapter):
             "source": "hpe-redfish",
             "system_path": system_path,
             "system": system,
+            "platform": self._platform_details(system, manager),
             "license": license_result,
             "health": health_result,
             "management_network": management_network,
@@ -298,11 +298,7 @@ class HpeIloAdapter(BaseVendorAdapter):
 
     def set_uid_led(self, state: str) -> dict[str, Any]:
         normalized = state if state in {"Lit", "Blinking", "Off"} else "Off"
-        systems = self._get("/redfish/v1/Systems/")
-        members = systems.get("Members") or []
-        system_path = "/redfish/v1/Systems/1/"
-        if members and isinstance(members[0], dict) and members[0].get("@odata.id"):
-            system_path = str(members[0]["@odata.id"])
+        system_path = self._first_member_path("/redfish/v1/Systems/", "/redfish/v1/Systems/1/")
         result = self._patch(system_path, {"IndicatorLED": normalized})
         return {"vendor": self.vendor, "state": normalized, "result": result}
 
@@ -388,6 +384,54 @@ class HpeIloAdapter(BaseVendorAdapter):
 
         raise RedfishError(f"No routable iLO management IPv4 address found. Skipped: {', '.join(skipped) or 'none'}")
 
+    def set_management_network(self, management: dict[str, Any]) -> dict[str, Any]:
+        manager_path = self._first_member_path("/redfish/v1/Managers/", "/redfish/v1/Managers/1/")
+        collection = self._get(f"{manager_path.rstrip('/')}/EthernetInterfaces/")
+        paths = self._member_paths(collection)
+        if not paths:
+            raise RedfishError("iLO EthernetInterfaces collection has no members.")
+        address = self._string_value(management.get("ip"))
+        if not address:
+            raise RedfishError("management.ip is required.")
+        ipv4 = {"Address": address}
+        for source, target in (("subnet", "SubnetMask"), ("gateway", "Gateway")):
+            value = self._string_value(management.get(source))
+            if value:
+                ipv4[target] = value
+        request: dict[str, Any] = {"DHCPv4": {"DHCPEnabled": False}, "IPv4StaticAddresses": [ipv4]}
+        dns = management.get("dns")
+        if dns:
+            request["StaticNameServers"] = [item.strip() for item in str(dns).split(",") if item.strip()]
+        vlan = str(management.get("vlan") or "0")
+        if vlan in {"", "0"}:
+            request["VLAN"] = {"VLANEnable": False}
+        else:
+            try:
+                vlan_id = int(vlan)
+            except ValueError as exc:
+                raise RedfishError(f"Invalid VLAN ID: {vlan}") from exc
+            if not 1 <= vlan_id <= 4094:
+                raise RedfishError(f"Invalid VLAN ID: {vlan}")
+            request["VLAN"] = {"VLANEnable": True, "VLANId": vlan_id}
+        result = self._patch(paths[0], request)
+        return {"vendor": self.vendor, "backend": "redfish", "ethernet_interface": paths[0], "payload": request, "result": result}
+
+    def install_ilo_license(self, license_key: str) -> dict[str, Any]:
+        manager_path = self._first_member_path("/redfish/v1/Managers/", "/redfish/v1/Managers/1/").rstrip("/")
+        candidates = (
+            f"{manager_path}/LicenseService/Actions/HpeiLOLicenseService.InstallLicense",
+            f"{manager_path}/LicenseService/Actions/Oem/Hpe/HpeiLOLicenseService.InstallLicense",
+            "/redfish/v1/LicenseService/Licenses/",
+        )
+        last_error: RedfishError | None = None
+        for path in candidates:
+            try:
+                result = self._post(path, {"LicenseKey": license_key})
+                return {"vendor": self.vendor, "backend": "redfish", "action": path, "result": result}
+            except RedfishError as exc:
+                last_error = exc
+        raise last_error or RedfishError("No supported iLO license install action was found.")
+
     def power_status(self) -> dict[str, Any]:
         inventory = self.get_system_inventory()
         system = inventory.get("system") if isinstance(inventory, dict) else {}
@@ -456,9 +500,8 @@ class HpeIloAdapter(BaseVendorAdapter):
         chassis_values: list[str | None] = []
         try:
             chassis = self._get("/redfish/v1/Chassis/")
-            for member in chassis.get("Members", []):
-                if isinstance(member, dict) and member.get("@odata.id"):
-                    chassis_values.append(self._health_value(self._get(str(member["@odata.id"]))))
+            for member_path in self._member_paths(chassis):
+                chassis_values.append(self._health_value(self._get(member_path)))
         except RedfishError:
             pass
 
@@ -478,10 +521,41 @@ class HpeIloAdapter(BaseVendorAdapter):
 
     def _first_member_path(self, collection_path: str, fallback: str) -> str:
         collection = self._get(collection_path)
-        for member in collection.get("Members", []):
-            if isinstance(member, dict) and member.get("@odata.id"):
-                return str(member["@odata.id"])
+        paths = self._member_paths(collection)
+        if paths:
+            return paths[0]
         return fallback
+
+    def _platform_details(self, system: dict[str, Any], manager: dict[str, Any]) -> dict[str, Any]:
+        """Normalize HPE server/iLO generations without making them routing gates."""
+        model = " ".join(
+            str(value) for value in (system.get("Model"), system.get("Name"), system.get("ProductName")) if value
+        )
+        match = re.search(r"\bGen\s*(9|10(?:\s*Plus|\+)?|11|12)\b", model, flags=re.IGNORECASE)
+        generation = None
+        if match:
+            value = re.sub(r"\s*Plus|\+", "Plus", match.group(1), flags=re.IGNORECASE)
+            generation = f"Gen{value}"
+
+        manager_text = " ".join(
+            str(value) for value in (manager.get("Model"), manager.get("Name"), manager.get("ManagerType")) if value
+        )
+        ilo_match = re.search(r"\biLO\s*(4|5|6|7)\b", manager_text, flags=re.IGNORECASE)
+        ilo_generation = f"iLO {ilo_match.group(1)}" if ilo_match else None
+        if not ilo_generation:
+            ilo_generation = {
+                "Gen9": "iLO 4",
+                "Gen10": "iLO 5",
+                "Gen10Plus": "iLO 5",
+                "Gen11": "iLO 6",
+                "Gen12": "iLO 7",
+            }.get(generation)
+        return {
+            "server_generation": generation,
+            "ilo_generation": ilo_generation,
+            "manager_firmware": manager.get("FirmwareVersion"),
+            "manager_path": manager.get("@odata.id"),
+        }
 
     def _safe_get(self, path: str) -> dict[str, Any] | None:
         try:
@@ -569,6 +643,16 @@ class HpeIloAdapter(BaseVendorAdapter):
                 paths.append(str(member["@odata.id"]))
             elif isinstance(member, dict) and member.get("href"):
                 paths.append(str(member["href"]))
+        # Early iLO 4 and some transitional iLO 5 payloads use lowercase
+        # collection fields instead of the Redfish 1.x Members property.
+        for key in ("members", "Member", "Items"):
+            members = collection.get(key)
+            if not isinstance(members, list):
+                continue
+            for member in members:
+                path = self._link_href(member)
+                if path:
+                    paths.append(path)
         links = collection.get("links")
         if isinstance(links, dict):
             members = links.get("Member")

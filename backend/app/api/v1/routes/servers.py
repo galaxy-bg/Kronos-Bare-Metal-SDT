@@ -87,7 +87,7 @@ def redfish_system_identity(inventory_json: dict[str, Any]) -> dict[str, str | N
         "serial_number": str(system.get("SerialNumber") or system.get("SKU") or "").strip() or None,
         "vendor": str(system.get("Manufacturer") or "").strip() or None,
         "model": str(system.get("Model") or "").strip() or None,
-        "product_name": str(system.get("SKU") or system.get("PartNumber") or "").strip() or None,
+        "product_name": str(system.get("ProductName") or system.get("Model") or system.get("SKU") or system.get("PartNumber") or "").strip() or None,
         "hostname": str(system.get("HostName") or system.get("Name") or "").strip() or None,
     }
 
@@ -1334,6 +1334,8 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
         "ntp": payload.ntp,
         "vlan": payload.vlan or "0",
     }
+    original_bmc_ip = server.bmc_ip
+    original_management_config = dict(server.management_config_json or {})
     action = ServerAction(
         server_id=server.id,
         action_type="hpe_set_ilo_network",
@@ -1354,6 +1356,20 @@ def set_ilo_network_action(server_id: int, payload: IloNetworkActionRequest, db:
     db.add(action)
     db.commit()
     db.refresh(action)
+    if should_execute_ilo_action_in_control_plane(server):
+        adapter = HpeIloAdapter(AdapterContext(vendor="hpe", model=server.model, bmc_ip=action.payload_json.get("bmc_ip"), credential=BmcCredential(auth_username, auth_password)))
+        try:
+            action.result_json = adapter.set_management_network(management_config)
+            action.status = "completed"
+            action.completed_at = datetime.now(UTC)
+        except RedfishError as exc:
+            server.bmc_ip = original_bmc_ip
+            server.management_config_json = original_management_config
+            action.status = "failed"
+            action.error_message = str(exc)
+            action.completed_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(action)
     return action_to_read(action)
 
 
@@ -1381,6 +1397,18 @@ def install_ilo_license_action(server_id: int, payload: IloLicenseActionRequest,
     db.add(action)
     db.commit()
     db.refresh(action)
+    if should_execute_ilo_action_in_control_plane(server):
+        adapter = HpeIloAdapter(AdapterContext(vendor="hpe", model=server.model, bmc_ip=server.bmc_ip, credential=BmcCredential(auth_username, auth_password)))
+        try:
+            action.result_json = adapter.install_ilo_license(payload.license_key)
+            action.status = "completed"
+            action.completed_at = datetime.now(UTC)
+        except RedfishError as exc:
+            action.status = "failed"
+            action.error_message = str(exc)
+            action.completed_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(action)
     return action_to_read(action)
 
 
