@@ -113,6 +113,31 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
         self.assertTrue(adapter._is_present_storage_drive(present))
         self.assertFalse(adapter._is_present_storage_drive(empty))
 
+    def test_volume_capabilities_enable_write_when_ilo_allow_header_omits_post(self) -> None:
+        adapter = FixtureIloAdapter({})
+        raid = adapter._raid_summary(
+            [
+                {
+                    "path": "/Storage/MR",
+                    "resource": {"Volumes": {"@odata.id": "/Storage/MR/Volumes"}},
+                    "controllers": [],
+                    "drives": [{"path": "/Drives/2", "resource": {"Name": "SSD", "SerialNumber": "disk-2"}}],
+                    "volumes": [],
+                    "volume_methods": ["GET", "HEAD"],
+                    "volume_capabilities": {"RAIDType@Redfish.AllowableValues": ["None", "RAID1"]},
+                }
+            ],
+            {"detected": False},
+        )
+        self.assertTrue(raid["apply_supported"])
+        self.assertEqual(raid["writable_drive_count"], 1)
+        self.assertEqual(raid["drives"][0]["writable_volume_collection"], "/Storage/MR/Volumes")
+
+    def test_volume_create_payload_uses_dmtf_display_name(self) -> None:
+        payload = FixtureIloAdapter({})._volume_create_payload("os-boot", "RAID1", ["/Drives/0", "/Drives/1"])
+        self.assertEqual(payload["DisplayName"], "os-boot")
+        self.assertNotIn("Name", payload)
+
 
 if __name__ == "__main__":
     unittest.main()

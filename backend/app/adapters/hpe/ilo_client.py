@@ -138,6 +138,11 @@ class HpeIloAdapter(BaseVendorAdapter):
                         "volume_methods": sorted(self._allowed_methods(str(storage_resource["Volumes"]["@odata.id"])))
                         if isinstance(storage_resource.get("Volumes"), dict) and storage_resource["Volumes"].get("@odata.id")
                         else [],
+                        "volume_capabilities": self._safe_get(
+                            str(storage_resource["Volumes"]["@odata.id"]).rstrip("/") + "/Capabilities"
+                        )
+                        if isinstance(storage_resource.get("Volumes"), dict) and storage_resource["Volumes"].get("@odata.id")
+                        else None,
                     }
                 )
 
@@ -995,7 +1000,17 @@ class HpeIloAdapter(BaseVendorAdapter):
             volumes_link = resource.get("Volumes") if isinstance(resource, dict) else None
             volume_collection = str(volumes_link.get("@odata.id")) if isinstance(volumes_link, dict) and volumes_link.get("@odata.id") else None
             volume_methods = {str(method).upper() for method in storage_member.get("volume_methods", set())}
-            writable_volume_collection = volume_collection if "POST" in volume_methods else None
+            volume_capabilities = storage_member.get("volume_capabilities")
+            capability_raid_types = (
+                volume_capabilities.get("RAIDType@Redfish.AllowableValues", [])
+                if isinstance(volume_capabilities, dict)
+                else []
+            )
+            writable_volume_collection = (
+                volume_collection
+                if "POST" in volume_methods or bool(capability_raid_types)
+                else None
+            )
             if writable_volume_collection:
                 volume_collections.add(volume_collection)
             hpe_oem_actions.extend(self._storage_oem_action_candidates(storage_path, resource))
@@ -1142,7 +1157,7 @@ class HpeIloAdapter(BaseVendorAdapter):
     def _volume_create_payload(self, name: str, raid_type: str, drive_paths: list[str]) -> dict[str, Any]:
         redfish_raid_type = "None" if raid_type in {"None", "NON_RAID", "JBOD"} else raid_type
         payload = {
-            "Name": self._volume_name(name),
+            "DisplayName": self._volume_name(name),
             "RAIDType": redfish_raid_type,
             "Links": {
                 "Drives": [{"@odata.id": path} for path in drive_paths],
