@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import ssl
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -178,27 +179,85 @@ class HpeIloAdapter(BaseVendorAdapter):
         raid_level = str(config.get("raid_level") or "RAID1").upper()
         volume_name = self._volume_name(str(config.get("volume_name") or "kdx-volume"))
 
-        if disk_mode in {"NON_RAID", "NONRAID", "JBOD"} or raid_level == "NON_RAID":
-            raise RedfishError("Non-RAID/JBOD apply is not supported by this HPE MR Redfish path; use RAID volume create or vendor tooling.")
-
         collection_path = self._volume_collection_for_drive_set(storage_inventory, selected_drive_paths)
-        payload = self._volume_create_payload(volume_name, raid_level, selected_drive_paths)
+        non_raid = disk_mode in {"NON_RAID", "NONRAID", "JBOD"} or raid_level == "NON_RAID"
+        operations: list[dict[str, Any]] = []
+        jbod_candidates = [
+            str(item.get("path"))
+            for item in config.get("jbod_candidate_drives", [])
+            if isinstance(item, dict) and item.get("path")
+        ]
+
+        # Validate the complete flow before the first destructive write so a
+        # capability mismatch cannot leave a partially applied plan.
+        self._require_raid_type(storage_inventory, collection_path, "None" if non_raid else raid_level)
+        if not non_raid and config.get("auto_jbod_remaining") and jbod_candidates:
+            jbod_collection = self._volume_collection_for_drive_set(storage_inventory, jbod_candidates)
+            if jbod_collection != collection_path:
+                raise RedfishError("Automatic Non-RAID drives must belong to the selected RAID controller.")
+            self._require_raid_type(storage_inventory, collection_path, "None")
+
+        if non_raid:
+            for index, drive_path in enumerate(selected_drive_paths, start=1):
+                operations.append(
+                    self._create_volume_operation(
+                        collection_path,
+                        self._volume_create_payload(f"{volume_name}-{index}", "None", [drive_path]),
+                        "non_raid",
+                    )
+                )
+        else:
+            operations.append(
+                self._create_volume_operation(
+                    collection_path,
+                    self._volume_create_payload(volume_name, raid_level, selected_drive_paths),
+                    "raid",
+                )
+            )
+
+        auto_jbod_executed = False
+        if not non_raid and config.get("auto_jbod_remaining") and jbod_candidates:
+            for index, drive_path in enumerate(jbod_candidates, start=1):
+                operations.append(
+                    self._create_volume_operation(
+                        collection_path,
+                        self._volume_create_payload(f"jbod-{index}", "None", [drive_path]),
+                        "auto_non_raid",
+                    )
+                )
+            auto_jbod_executed = True
+
         return {
             "vendor": self.vendor,
             "implemented": True,
-            "disk_mode": "RAID",
+            "flow": "dmtf_storage_volumes",
+            "disk_mode": "NON_RAID" if non_raid else "RAID",
             "auto_jbod_remaining": bool(config.get("auto_jbod_remaining")),
-            "auto_jbod_executed": False,
+            "auto_jbod_executed": auto_jbod_executed,
             "volume_collection": collection_path,
-            "payload": payload,
-            "result": self._post(collection_path, payload),
-            "message": (
-                f"{raid_level} volume create request was submitted. "
-                "Auto JBOD remaining drives is tracked as a plan policy and is not executed by this Redfish path yet."
-                if config.get("auto_jbod_remaining")
-                else f"{raid_level} volume create request was submitted."
-            ),
+            "operations": operations,
+            "message": f"Completed {len(operations)} DMTF Redfish storage operation(s).",
         }
+
+    def _create_volume_operation(self, collection_path: str, payload: dict[str, Any], purpose: str) -> dict[str, Any]:
+        result = self._post(collection_path, payload)
+        task = self._wait_for_redfish_task(result.get("location")) if result.get("http_status") == 202 else None
+        return {"purpose": purpose, "payload": payload, "result": result, "task": task}
+
+    def _wait_for_redfish_task(self, location: object, attempts: int = 30, interval: float = 2.0) -> dict[str, Any] | None:
+        if not location:
+            return None
+        path = str(location)
+        for attempt in range(attempts):
+            task = self._get(path)
+            state = str(task.get("TaskState") or task.get("JobState") or "").lower()
+            if state in {"completed", "completedok", "success", "succeeded"}:
+                return task
+            if state in {"exception", "killed", "cancelled", "failed", "interrupted", "suspended"}:
+                raise RedfishError(f"Redfish storage task failed with state {state}: {task}")
+            if attempt + 1 < attempts:
+                time.sleep(interval)
+        raise RedfishError(f"Timed out waiting for Redfish storage task {path}.")
 
     def clear_raid_config(self, storage_path: str | None = None) -> dict[str, Any]:
         storage_inventory = self.get_storage_inventory()
@@ -220,23 +279,51 @@ class HpeIloAdapter(BaseVendorAdapter):
             allowable = reset.get("ResetType@Redfish.AllowableValues") if isinstance(reset, dict) else []
             reset_type = "ResetAll" if not allowable or "ResetAll" in allowable else str(allowable[0])
             payload = {"ResetType": reset_type}
+            result = self._post(str(target), payload)
             operations.append(
                 {
                     "storage_path": storage_member.get("path"),
                     "action": str(target),
                     "payload": payload,
-                    "result": self._post(str(target), payload),
+                    "result": result,
+                    "task": self._wait_for_redfish_task(result.get("location")) if result.get("http_status") == 202 else None,
                 }
             )
 
         if not operations:
             raise RedfishError("No HPE Redfish Storage.ResetToDefaults action was found for this storage controller.")
+        ready = self._wait_for_cleared_storage([str(item["storage_path"]) for item in operations])
         return {
             "vendor": self.vendor,
             "implemented": True,
             "operations": operations,
-            "message": "Storage config clear request was submitted.",
+            "ready": ready,
+            "message": "Storage config was cleared and the Redfish volume collection is ready.",
         }
+
+    def _wait_for_cleared_storage(self, storage_paths: list[str], attempts: int = 20, interval: float = 2.0) -> bool:
+        requested = {self._normalize_odata_path(path) for path in storage_paths}
+        consecutive_ready = 0
+        for attempt in range(attempts):
+            inventory = self.get_storage_inventory()
+            members = [
+                member for member in inventory.get("storage", [])
+                if isinstance(member, dict) and self._normalize_odata_path(str(member.get("path") or "")) in requested
+            ]
+            ready = bool(members) and all(
+                not member.get("volumes")
+                and (
+                    isinstance(member.get("volume_capabilities"), dict)
+                    or "POST" in {str(method).upper() for method in member.get("volume_methods", [])}
+                )
+                for member in members
+            )
+            consecutive_ready = consecutive_ready + 1 if ready else 0
+            if consecutive_ready >= 2:
+                return True
+            if attempt + 1 < attempts:
+                time.sleep(interval)
+        raise RedfishError("Storage reset completed, but the controller did not become ready for volume creation in time.")
 
     def delete_raid_volume(self, volume_path: str) -> dict[str, Any]:
         normalized = self._normalize_odata_path(volume_path)
@@ -992,6 +1079,7 @@ class HpeIloAdapter(BaseVendorAdapter):
         drives: list[dict[str, Any]] = []
         volumes: list[dict[str, Any]] = []
         volume_collections: set[str] = set()
+        supported_raid_types: set[str] = set()
         hpe_oem_actions: list[dict[str, Any]] = []
 
         for storage_member in storage_members:
@@ -1006,6 +1094,7 @@ class HpeIloAdapter(BaseVendorAdapter):
                 if isinstance(volume_capabilities, dict)
                 else []
             )
+            supported_raid_types.update(str(value) for value in capability_raid_types)
             writable_volume_collection = (
                 volume_collection
                 if "POST" in volume_methods or bool(capability_raid_types)
@@ -1079,6 +1168,8 @@ class HpeIloAdapter(BaseVendorAdapter):
                 "available": has_standard_redfish,
                 "volume_collections": sorted(volume_collections),
                 "writable_drive_count": writable_drive_count,
+                "supported_raid_types": sorted(supported_raid_types),
+                "non_raid_supported": "None" in supported_raid_types,
             },
             "hpe_oem": {
                 "available": has_hpe_oem,
@@ -1163,9 +1254,30 @@ class HpeIloAdapter(BaseVendorAdapter):
                 "Drives": [{"@odata.id": path} for path in drive_paths],
             },
         }
-        if redfish_raid_type != "None":
-            payload["InitializeMethod"] = "Background"
         return payload
+
+    def _require_raid_type(self, storage_inventory: dict[str, Any], collection_path: str, raid_type: str) -> None:
+        normalized_collection = self._normalize_odata_path(collection_path)
+        for storage_member in storage_inventory.get("storage", []):
+            if not isinstance(storage_member, dict):
+                continue
+            resource = storage_member.get("resource") if isinstance(storage_member.get("resource"), dict) else {}
+            volumes = resource.get("Volumes") if isinstance(resource, dict) else None
+            candidate = volumes.get("@odata.id") if isinstance(volumes, dict) else None
+            if self._normalize_odata_path(str(candidate or "")) != normalized_collection:
+                continue
+            capabilities = storage_member.get("volume_capabilities")
+            allowed = capabilities.get("RAIDType@Redfish.AllowableValues", []) if isinstance(capabilities, dict) else []
+            if raid_type in {str(value) for value in allowed}:
+                return
+            methods = {str(method).upper() for method in storage_member.get("volume_methods", [])}
+            if not allowed and "POST" in methods and raid_type != "None":
+                # Older Gen10 Redfish services can expose POST without a
+                # Capabilities resource. Preserve the existing RAID create
+                # path, but never infer Non-RAID support.
+                return
+            raise RedfishError(f"Controller does not advertise RAIDType {raid_type}; allowable values: {allowed}.")
+        raise RedfishError(f"Capabilities were not found for Redfish volume collection {collection_path}.")
 
     def _normalize_odata_path(self, path: str | None) -> str:
         return str(path or "").strip().rstrip("/")

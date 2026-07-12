@@ -686,7 +686,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
                   }}
                 />
               }
-              label="Auto JBOD remaining"
+              label="Expose remaining as Non-RAID"
             />
           )}
           <Box sx={{ flex: 1 }} />
@@ -746,7 +746,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
                     <TableCell>
                       <Chip
                         size="small"
-                        label={assigned ? 'Assigned' : selectedForRaid ? 'RAID member' : jbodCandidate ? 'JBOD candidate' : selectable ? 'Available' : 'Unavailable'}
+                        label={assigned ? 'Assigned' : selectedForRaid ? 'RAID member' : jbodCandidate ? 'Non-RAID after apply' : selectable ? 'Available' : 'Unavailable'}
                         color={selectedForRaid ? 'primary' : jbodCandidate || selectable ? 'success' : 'default'}
                       />
                     </TableCell>
@@ -775,7 +775,7 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Chip size="small" label={plan.disk_mode === 'NON_RAID' ? `Non-RAID / JBOD ${plan.purpose}` : `${plan.raid_level} ${plan.purpose}`} />
               <Chip size="small" label={`${plan.selected_drives.length} selected drives`} />
-              {plan.auto_jbod_remaining && <Chip size="small" label={`${plan.jbod_candidate_drives.length} JBOD candidates`} />}
+              {plan.auto_jbod_remaining && <Chip size="small" label={`${plan.jbod_candidate_drives.length} remaining → Non-RAID`} />}
               <Chip size="small" label={plan.bootable ? 'Bootable' : 'Not bootable'} />
               <Chip size="small" label={plan.disk_mode === 'NON_RAID' ? 'Expose to OS' : 'Create volume'} />
               <Chip size="small" label={plan.apply_supported ? 'Apply enabled' : 'Apply disabled'} />

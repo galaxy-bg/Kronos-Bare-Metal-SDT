@@ -137,6 +137,48 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
         payload = FixtureIloAdapter({})._volume_create_payload("os-boot", "RAID1", ["/Drives/0", "/Drives/1"])
         self.assertEqual(payload["DisplayName"], "os-boot")
         self.assertNotIn("Name", payload)
+        self.assertNotIn("InitializeMethod", payload)
+
+    def test_dmtf_storage_flow_creates_raid_then_non_raid_remaining(self) -> None:
+        volumes = "/redfish/v1/Systems/1/Storage/MR/Volumes"
+        drives = [f"/redfish/v1/Chassis/MR/Drives/{index}" for index in range(4)]
+        adapter = FixtureIloAdapter({})
+        adapter.get_storage_inventory = lambda: {  # type: ignore[method-assign]
+            "storage": [{
+                "resource": {"Volumes": {"@odata.id": volumes}},
+                "drives": [{"resource": {"@odata.id": path}} for path in drives],
+                "volume_capabilities": {"RAIDType@Redfish.AllowableValues": ["None", "RAID1"]},
+            }]
+        }
+        writes = []
+        adapter._post = lambda path, payload: writes.append((path, payload)) or {"http_status": 201}  # type: ignore[method-assign]
+
+        result = adapter.set_raid_config({
+            "disk_mode": "RAID",
+            "raid_level": "RAID1",
+            "volume_name": "os-boot",
+            "selected_drive_paths": drives[:2],
+            "auto_jbod_remaining": True,
+            "jbod_candidate_drives": [{"path": path} for path in drives[2:]],
+        })
+
+        self.assertEqual([payload["RAIDType"] for _, payload in writes], ["RAID1", "None", "None"])
+        self.assertTrue(result["auto_jbod_executed"])
+        self.assertEqual(len(result["operations"]), 3)
+
+    def test_non_raid_flow_requires_none_capability(self) -> None:
+        volumes = "/redfish/v1/Systems/1/Storage/MR/Volumes"
+        drive = "/redfish/v1/Chassis/MR/Drives/0"
+        adapter = FixtureIloAdapter({})
+        adapter.get_storage_inventory = lambda: {  # type: ignore[method-assign]
+            "storage": [{
+                "resource": {"Volumes": {"@odata.id": volumes}},
+                "drives": [{"resource": {"@odata.id": drive}}],
+                "volume_capabilities": {"RAIDType@Redfish.AllowableValues": ["RAID1"]},
+            }]
+        }
+        with self.assertRaisesRegex(Exception, "does not advertise RAIDType None"):
+            adapter.set_raid_config({"disk_mode": "NON_RAID", "selected_drive_paths": [drive]})
 
 
 if __name__ == "__main__":

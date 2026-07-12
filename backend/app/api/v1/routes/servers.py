@@ -284,6 +284,8 @@ def raid_plan_requirement(raid_level: str) -> tuple[int, int | None]:
 def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[str, Any]) -> dict[str, Any]:
     raid_summary = nested_dict(raid_config.get("raid"))
     capabilities = nested_dict(raid_summary.get("capabilities"))
+    standard_capabilities = nested_dict(capabilities.get("redfish_standard"))
+    non_raid_supported = bool(standard_capabilities.get("non_raid_supported"))
     storage_executor = str(capabilities.get("executor") or ("redfish_standard" if raid_summary.get("apply_supported") else "agent_required"))
     drive_items = raid_summary.get("drives")
     drives = [item for item in drive_items if isinstance(item, dict)] if isinstance(drive_items, list) else []
@@ -348,16 +350,15 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
     if disk_mode == "NON_RAID":
         add_check(
             "non-raid-redfish-support",
-            False,
-            "Non-RAID/JBOD apply is not supported by this HPE MR Redfish path; the controller returns UnsupportedOperation.",
+            non_raid_supported,
+            "Controller must advertise RAIDType None in the DMTF Volumes capabilities for Non-RAID/JBOD.",
         )
-    else:
-        missing_writable_collection = [drive for drive in selected_summaries if not drive.get("writable_volume_collection")]
-        add_check(
-            "redfish-volume-collection",
-            not missing_writable_collection,
-            "Selected drives must be linked to a writable Redfish Volumes collection; otherwise the agent storage executor is required.",
-        )
+    missing_writable_collection = [drive for drive in selected_summaries if not drive.get("writable_volume_collection")]
+    add_check(
+        "redfish-volume-collection",
+        not missing_writable_collection,
+        "Selected drives must be linked to a writable Redfish Volumes collection; otherwise the agent storage executor is required.",
+    )
 
     add_check(
         "disk-mode",
@@ -371,15 +372,15 @@ def build_raid_plan(server: Server, payload: RaidPlanRequest, raid_config: dict[
         if drive_is_jbod_candidate(drive)
     ] if disk_mode == "RAID" and payload.auto_jbod_remaining else []
     if disk_mode == "RAID" and payload.auto_jbod_remaining:
-        warnings.append(
-            {
-                "name": "auto-jbod-remaining",
-                "message": (
-                    f"{len(jbod_candidate_drives)} remaining drive(s) are marked as JBOD candidates. "
-                    "Current HPE MR Redfish apply creates the RAID volume only; Make JBOD automation is pending vendor action discovery."
-                ),
-            }
+        add_check(
+            "auto-non-raid-support",
+            not jbod_candidate_drives or non_raid_supported,
+            "Auto remaining requires RAIDType None support; each remaining drive will be created as a separate Non-RAID volume.",
         )
+        warnings.append({
+            "name": "auto-jbod-remaining",
+            "message": f"{len(jbod_candidate_drives)} remaining drive(s) will be exposed using individual RAIDType None volumes after the RAID volume succeeds.",
+        })
 
     eligible = all(check["passed"] for check in checks)
     return {
