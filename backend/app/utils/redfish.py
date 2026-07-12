@@ -4,6 +4,7 @@ import base64
 import gzip
 import json
 import ssl
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -43,6 +44,7 @@ def redfish_get_json(
     password: str,
     timeout: int = 10,
     verify_tls: bool = False,
+    attempts: int = 3,
 ) -> dict[str, Any]:
     url = base_url.rstrip("/") + "/" + path.lstrip("/")
     headers = {
@@ -53,11 +55,21 @@ def redfish_get_json(
     }
     request = Request(url, headers=headers, method="GET")
     context = None if verify_tls else ssl._create_unverified_context()
-    try:
-        with urlopen(request, timeout=timeout, context=context) as response:
-            body = decode_redfish_body(response.read())
-    except (HTTPError, URLError, TimeoutError) as exc:
-        raise RedfishError(redfish_error_message(exc)) from exc
+    last_error: URLError | TimeoutError | None = None
+    for attempt in range(max(attempts, 1)):
+        try:
+            with urlopen(request, timeout=timeout, context=context) as response:
+                body = decode_redfish_body(response.read())
+            break
+        except HTTPError as exc:
+            raise RedfishError(redfish_error_message(exc)) from exc
+        except (URLError, TimeoutError) as exc:
+            last_error = exc
+            if attempt + 1 >= max(attempts, 1):
+                raise RedfishError(redfish_error_message(exc)) from exc
+            time.sleep(0.5 * (2**attempt))
+    else:
+        raise RedfishError(redfish_error_message(last_error or TimeoutError("Redfish GET failed")))
     try:
         return json.loads(body)
     except json.JSONDecodeError as exc:
