@@ -99,8 +99,12 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
                 controller_path: {"Id": "0", "Name": "HPE MR416i-o Gen11", "SupportedRAIDTypes": ["None", "RAID1"]},
             }
         )
-        storage_resource = {"Controllers": {"@odata.id": controller_collection}}
+        storage_resource = {
+            "Controllers": {"@odata.id": controller_collection},
+            "StorageControllers": [{"Name": "Deprecated duplicate"}],
+        }
         controllers = adapter._extract_controllers(storage_resource)
+        self.assertEqual(len(controllers), 1)
         self.assertEqual(controllers[0]["path"], controller_path)
         self.assertEqual(controllers[0]["resource"]["Name"], "HPE MR416i-o Gen11")
 

@@ -858,7 +858,10 @@ class HpeIloAdapter(BaseVendorAdapter):
 
     def _extract_controllers(self, storage_resource: dict[str, Any]) -> list[dict[str, Any]]:
         controllers: list[dict[str, Any]] = []
-        for key in ("StorageControllers", "Controllers"):
+        # Controllers is the current DMTF model. StorageControllers is the
+        # deprecated inline representation and may mirror the same devices.
+        keys = ("Controllers",) if storage_resource.get("Controllers") else ("StorageControllers",)
+        for key in keys:
             value = storage_resource.get(key)
             if isinstance(value, list):
                 for index, item in enumerate(value):
