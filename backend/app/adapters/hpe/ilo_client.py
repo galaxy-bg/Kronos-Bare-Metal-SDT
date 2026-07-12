@@ -1162,8 +1162,9 @@ class HpeIloAdapter(BaseVendorAdapter):
         has_standard_redfish = writable_drive_count > 0
         has_hpe_oem = bool(hpe_oem_actions)
         apply_supported = has_standard_redfish
+        read_only_redfish = bool(supported_raid_types) and not has_standard_redfish
         capabilities = {
-            "executor": "redfish_standard" if has_standard_redfish else "agent_required",
+            "executor": "redfish_standard" if has_standard_redfish else "redfish_read_only" if read_only_redfish else "agent_required",
             "redfish_standard": {
                 "available": has_standard_redfish,
                 "volume_collections": sorted(volume_collections),
@@ -1178,7 +1179,7 @@ class HpeIloAdapter(BaseVendorAdapter):
                 "actions": hpe_oem_actions,
             },
             "agent": {
-                "required": not has_standard_redfish,
+                "required": not has_standard_redfish and not read_only_redfish,
                 "reason": (
                     None
                     if has_standard_redfish

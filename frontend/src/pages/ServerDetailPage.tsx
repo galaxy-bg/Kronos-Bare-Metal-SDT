@@ -784,6 +784,8 @@ function RaidConfigPanel({ server, inventory }: { server: ServerDetail; inventor
                 label={`Executor: ${
                   plan.storage_executor === 'redfish_standard'
                     ? 'Redfish standard'
+                    : plan.storage_executor === 'redfish_read_only'
+                      ? 'Redfish read-only'
                     : plan.storage_executor === 'agent_required'
                       ? 'Agent required'
                       : plan.storage_executor
