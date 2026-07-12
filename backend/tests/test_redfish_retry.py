@@ -4,10 +4,18 @@ import unittest
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
-from app.utils.redfish import RedfishError, redfish_get_json
+from app.utils.redfish import RedfishError, redfish_allowed_methods, redfish_get_json
 
 
 class RedfishGetRetryTests(unittest.TestCase):
+    @patch("app.utils.redfish.urlopen")
+    def test_reads_allowed_collection_methods(self, urlopen: MagicMock) -> None:
+        response = MagicMock()
+        response.__enter__.return_value.headers.get.return_value = "GET, HEAD, POST"
+        urlopen.return_value = response
+        methods = redfish_allowed_methods("https://ilo", "/redfish/v1/Systems/1/Storage/1/Volumes", "user", "pass")
+        self.assertEqual(methods, {"GET", "HEAD", "POST"})
+        self.assertEqual(urlopen.call_args.args[0].method, "HEAD")
     @patch("app.utils.redfish.time.sleep")
     @patch("app.utils.redfish.urlopen")
     def test_retries_transient_tls_error(self, urlopen: MagicMock, sleep: MagicMock) -> None:

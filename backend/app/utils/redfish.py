@@ -76,6 +76,29 @@ def redfish_get_json(
         raise RedfishError(f"Invalid Redfish JSON from {url}") from exc
 
 
+def redfish_allowed_methods(
+    base_url: str,
+    path: str,
+    username: str,
+    password: str,
+    timeout: int = 10,
+    verify_tls: bool = False,
+) -> set[str]:
+    url = base_url.rstrip("/") + "/" + path.lstrip("/")
+    request = Request(
+        url,
+        headers={"Accept": "application/json", "Authorization": basic_auth_header(username, password)},
+        method="HEAD",
+    )
+    context = None if verify_tls else ssl._create_unverified_context()
+    try:
+        with urlopen(request, timeout=timeout, context=context) as response:
+            allowed = response.headers.get("Allow", "")
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise RedfishError(redfish_error_message(exc)) from exc
+    return {method.strip().upper() for method in allowed.split(",") if method.strip()}
+
+
 def redfish_patch_json(
     base_url: str,
     path: str,

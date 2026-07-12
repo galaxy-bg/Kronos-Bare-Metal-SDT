@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 from app.adapters.base import AdapterContext, BaseVendorAdapter
-from app.utils.redfish import RedfishError, redfish_delete_json, redfish_get_json, redfish_patch_json, redfish_post_json
+from app.utils.redfish import RedfishError, redfish_allowed_methods, redfish_delete_json, redfish_get_json, redfish_patch_json, redfish_post_json
 
 
 class HpeIloAdapter(BaseVendorAdapter):
@@ -41,6 +41,13 @@ class HpeIloAdapter(BaseVendorAdapter):
     def _delete(self, path: str) -> dict[str, Any]:
         base_url, username, password = self._require_connection()
         return redfish_delete_json(base_url, path, username, password)
+
+    def _allowed_methods(self, path: str) -> set[str]:
+        base_url, username, password = self._require_connection()
+        try:
+            return redfish_allowed_methods(base_url, path, username, password)
+        except RedfishError:
+            return set()
 
     def detect(self) -> dict[str, Any]:
         root = self._get("/redfish/v1/")
@@ -128,6 +135,9 @@ class HpeIloAdapter(BaseVendorAdapter):
                         "controllers": self._extract_controllers(storage_resource),
                         "drives": self._read_linked_collection(storage_resource.get("Drives")),
                         "volumes": self._read_volumes(storage_resource.get("Volumes")),
+                        "volume_methods": sorted(self._allowed_methods(str(storage_resource["Volumes"]["@odata.id"])))
+                        if isinstance(storage_resource.get("Volumes"), dict) and storage_resource["Volumes"].get("@odata.id")
+                        else [],
                     }
                 )
 
@@ -984,7 +994,9 @@ class HpeIloAdapter(BaseVendorAdapter):
             resource = storage_member.get("resource") if isinstance(storage_member.get("resource"), dict) else {}
             volumes_link = resource.get("Volumes") if isinstance(resource, dict) else None
             volume_collection = str(volumes_link.get("@odata.id")) if isinstance(volumes_link, dict) and volumes_link.get("@odata.id") else None
-            if volume_collection:
+            volume_methods = {str(method).upper() for method in storage_member.get("volume_methods", set())}
+            writable_volume_collection = volume_collection if "POST" in volume_methods else None
+            if writable_volume_collection:
                 volume_collections.add(volume_collection)
             hpe_oem_actions.extend(self._storage_oem_action_candidates(storage_path, resource))
             for controller in storage_member.get("controllers", []):
@@ -993,7 +1005,7 @@ class HpeIloAdapter(BaseVendorAdapter):
                     hpe_oem_actions.extend(self._storage_oem_action_candidates(storage_path, controller, "controller"))
             for drive in storage_member.get("drives", []):
                 if isinstance(drive, dict) and self._is_present_storage_drive(drive):
-                    drives.append({"source": storage_path, "writable_volume_collection": volume_collection, **drive})
+                    drives.append({"source": storage_path, "writable_volume_collection": writable_volume_collection, **drive})
             for volume in storage_member.get("volumes", []):
                 if isinstance(volume, dict):
                     volumes.append({"source": storage_path, **volume})
