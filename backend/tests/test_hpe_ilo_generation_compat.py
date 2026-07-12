@@ -113,7 +113,7 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
         self.assertTrue(adapter._is_present_storage_drive(present))
         self.assertFalse(adapter._is_present_storage_drive(empty))
 
-    def test_volume_capabilities_enable_write_when_ilo_allow_header_omits_post(self) -> None:
+    def test_volume_capabilities_do_not_override_read_only_allow_header(self) -> None:
         adapter = FixtureIloAdapter({})
         raid = adapter._raid_summary(
             [
@@ -129,9 +129,10 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
             ],
             {"detected": False},
         )
-        self.assertTrue(raid["apply_supported"])
-        self.assertEqual(raid["writable_drive_count"], 1)
-        self.assertEqual(raid["drives"][0]["writable_volume_collection"], "/Storage/MR/Volumes")
+        self.assertFalse(raid["apply_supported"])
+        self.assertEqual(raid["writable_drive_count"], 0)
+        self.assertIsNone(raid["drives"][0]["writable_volume_collection"])
+        self.assertTrue(raid["capabilities"]["redfish_standard"]["read_only_capabilities_detected"])
 
     def test_volume_create_payload_uses_dmtf_display_name(self) -> None:
         payload = FixtureIloAdapter({})._volume_create_payload("os-boot", "RAID1", ["/Drives/0", "/Drives/1"])
@@ -147,6 +148,7 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
             "storage": [{
                 "resource": {"Volumes": {"@odata.id": volumes}},
                 "drives": [{"resource": {"@odata.id": path}} for path in drives],
+                "volume_methods": ["GET", "HEAD", "POST"],
                 "volume_capabilities": {"RAIDType@Redfish.AllowableValues": ["None", "RAID1"]},
             }]
         }
@@ -174,6 +176,7 @@ class HpeIloGenerationCompatibilityTests(unittest.TestCase):
             "storage": [{
                 "resource": {"Volumes": {"@odata.id": volumes}},
                 "drives": [{"resource": {"@odata.id": drive}}],
+                "volume_methods": ["GET", "HEAD", "POST"],
                 "volume_capabilities": {"RAIDType@Redfish.AllowableValues": ["RAID1"]},
             }]
         }

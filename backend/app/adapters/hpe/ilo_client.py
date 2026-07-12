@@ -1097,7 +1097,7 @@ class HpeIloAdapter(BaseVendorAdapter):
             supported_raid_types.update(str(value) for value in capability_raid_types)
             writable_volume_collection = (
                 volume_collection
-                if "POST" in volume_methods or bool(capability_raid_types)
+                if "POST" in volume_methods
                 else None
             )
             if writable_volume_collection:
@@ -1169,7 +1169,8 @@ class HpeIloAdapter(BaseVendorAdapter):
                 "volume_collections": sorted(volume_collections),
                 "writable_drive_count": writable_drive_count,
                 "supported_raid_types": sorted(supported_raid_types),
-                "non_raid_supported": "None" in supported_raid_types,
+                "non_raid_supported": has_standard_redfish and "None" in supported_raid_types,
+                "read_only_capabilities_detected": bool(supported_raid_types) and not has_standard_redfish,
             },
             "hpe_oem": {
                 "available": has_hpe_oem,
@@ -1178,7 +1179,11 @@ class HpeIloAdapter(BaseVendorAdapter):
             },
             "agent": {
                 "required": not has_standard_redfish,
-                "reason": None if has_standard_redfish else "No standard Redfish Volumes collection or implemented HPE OEM storage action was exposed.",
+                "reason": (
+                    None
+                    if has_standard_redfish
+                    else "The Redfish Volumes collection does not advertise POST in its Allow header; the controller is currently read-only through RDE."
+                ),
             },
         }
 
@@ -1271,6 +1276,10 @@ class HpeIloAdapter(BaseVendorAdapter):
             if raid_type in {str(value) for value in allowed}:
                 return
             methods = {str(method).upper() for method in storage_member.get("volume_methods", [])}
+            if "POST" not in methods:
+                raise RedfishError(
+                    f"Redfish volume collection {collection_path} is read-only; Allow does not advertise POST ({sorted(methods)})."
+                )
             if not allowed and "POST" in methods and raid_type != "None":
                 # Older Gen10 Redfish services can expose POST without a
                 # Capabilities resource. Preserve the existing RAID create
